@@ -274,6 +274,14 @@ local function save_state()
     return ok
 end
 
+-- Save after a change.  While a save is owed the site may have turned up with data of its own,
+-- which must be read before anything is written over it: retry_save() does that.
+local retry_save
+local function save_change()
+    if site_pending then return retry_save() end
+    return save_state()
+end
+
 -- Facing of a chair building (DEFAULT if it has never been turned).
 function get_facing(building_id)
     return facing_of[building_id] or DEFAULT
@@ -288,7 +296,7 @@ function set_facing(building_id, facing)
     facing_of[building_id] = facing ~= DEFAULT and facing or nil
     nudge_of[building_id] = nil
     changed[building_id] = true
-    save_state()
+    save_change()
 end
 
 -- How many pixels a chair with this facing can be nudged toward dir (NORTH..WEST) from where it
@@ -330,7 +338,7 @@ function set_nudge(building_id, dx, dy)
     dx, dy = clamp_nudge(get_facing(building_id), dx, dy)
     nudge_of[building_id] = (dx ~= 0 or dy ~= 0) and {dx, dy} or nil
     changed[building_id] = true
-    save_state()
+    save_change()
     return dx, dy
 end
 
@@ -421,7 +429,7 @@ end
 
 -- A save was refused earlier: see whether the site can be saved to now.  If saved data has
 -- turned up for it meanwhile, that is read first and this session's changes go on top.
-local function retry_save()
+function retry_save()
     if load_data() == nil then return save_state() end
     local facings, nudges, mine = facing_of, nudge_of, changed
     restore()

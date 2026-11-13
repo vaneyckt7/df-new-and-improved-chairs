@@ -91,6 +91,7 @@ local function load_script()
         building_chairst=CHAIR_TYPE,
         building={find=function(id)   -- like the game: integers only, and only 32 bits of them
             if math.type(id) ~= 'integer' then error('integer expected') end
+            if W.buildings[id] and W.buildings[id].find_fails then error('find failed') end
             return W.buildings[id & 0xffffffff]
         end},
         global=setmetatable({}, {__index=function(_, k)
@@ -453,6 +454,31 @@ do  -- `improved-chairs status` runs the file again in the same environment: owe
     check('and are saved in the end', d and d['1'] == Wd and d['2:nudge'][2] == 1)
     assert(loadfile(SCRIPT, 't', m))()
     check('nothing is carried once saved', m.get_facing(1) == Wd and not m.internal.save_pending())
+end
+
+do  -- a click lands after the site turned up but before the overlay's next retry
+    W = new_world(); chair(1, 5, 5, 10); chair(2, 6, 5, 10); chair(3, 7, 5, 10)
+    W.no_site = true
+    m = load_script()
+    m.set_facing(1, Wd)
+    W.no_site = false
+    W.site['improved-chairs'] = {format=2, ['2']=N, ['2:nudge']={1, 1}, ['3']=E}
+    m.set_facing(1, E)
+    local d = W.site['improved-chairs']
+    check('the click does not write over the site\'s own data', d['1'] == E and d['2'] == N and d['2:nudge'][1] == 1 and d['3'] == E)
+    check('and that data is shown', m.get_facing(2) == N and m.get_facing(3) == E and not m.internal.save_pending())
+end
+
+do  -- the world is unloaded: nothing of it is kept
+    W = new_world(); chair(1, 5, 5, 10)
+    m = load_script(); m.set_facing(1, Wd)
+    local handler
+    for k, f in pairs(m.dfhack.onStateChange) do handler = f end
+    handler(m.SC_WORLD_UNLOADED)
+    eq('facings dropped at unload', m.get_facing(1), S)
+    W.buildings[1].find_fails = true
+    local ok, err = pcall(handler, m.SC_MAP_LOADED)
+    check('a restore that throws does not escape the handler', ok, err)
 end
 
 do  -- the data turns up but the save is refused once more: the changes are still owed

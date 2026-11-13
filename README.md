@@ -218,6 +218,10 @@ and which map cell a chair is drawn in. `package.sh` runs them.
   the game's own chairs show in the meantime.
 - Semi-transparent pixels (the shadow under the seat) can differ from version 1.0 by one step
   of 255 in a colour channel.
+- On DFHack 53.16-r1.1 and older, a reclaimed fortress cannot store anything until the game has
+  saved it once. Chairs turned or nudged before that first save are kept and stored right after
+  it, so they reach the save file with the second save: save once more before quitting.
+  DFHack 53.16-r2 and later do not have this gap.
 - Fortress mode only. In adventure mode chairs are drawn by the game; visiting your old fort as
   an adventurer leaves the stored facings untouched but does not draw them.
 
