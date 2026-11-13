@@ -20,6 +20,8 @@ local function anything()
     return setmetatable(t, {__index=function() return anything() end, __call=function() return anything() end})
 end
 local function zeros(n) local t = {}; for i = 0, n - 1 do t[i] = 0 end; return t end
+-- a 0-based vector with a length, like the game's
+local function vec(list) local t = {}; for i, v in ipairs(list) do t[i - 1] = v end; return setmetatable(t, {__len=function() return #list end}) end
 local function viewport(dim_x, dim_y) return {dim_x=dim_x, dim_y=dim_y, screentexpos_building_one=zeros(dim_x * dim_y)} end
 
 -- the game's default palette: shade i of ramp 0 is grey 10*i, of ramp 1 grey 100+10*i
@@ -39,6 +41,12 @@ local function chair(id, x, y, z, opts)
     local b = {id=id, centerx=x, centery=y, z=z, _type=CHAIR_TYPE, contained_items={}}
     function b:getBuildStage() return opts.unfinished and 0 or 1 end
     function b:getMaxBuildStage() return 1 end
+    if opts.mat then
+        local item = {}
+        function item:getMaterial() return opts.mat[1] end
+        function item:getMaterialIndex() return opts.mat[2] end
+        b.contained_items = vec{{item=item}}
+    end
     if opts.broken then setmetatable(b.contained_items, {__len=function() error('broken chair') end}) end
     W.buildings[id] = b
     W.chairs[#W.chairs + 1] = b
@@ -59,7 +67,7 @@ local function load_script()
         findScript=function() return SCRIPT end,
         isMapLoaded=function() return W.map_loaded end,
         world={isFortressMode=function() return W.fortress end},
-        matinfo={decode=function() return nil end},
+        matinfo={decode=function(t, i) return W.materials and W.materials[t .. ':' .. i] or nil end},
         persistent={
             getSiteData=function(key, default) local d = W.site[key]; if d == nil then return default end; return copy(d) end,
             saveSiteData=function(key, data) W.site[key] = copy(data); W.saves = W.saves + 1 end,
@@ -75,7 +83,7 @@ local function load_script()
         building={find=function(id) return W.buildings[id] end},
         global=setmetatable({}, {__index=function(_, k)
             if k == 'gps' then return W.gps end
-            if k == 'world' then return {buildings={other={CHAIR=W.chairs}}, raws={descriptors={colors={}, patterns={}}}} end
+            if k == 'world' then return {buildings={other={CHAIR=W.chairs}}, raws={descriptors=W.descriptors or {colors={}, patterns={}}}} end
             return W[k]
         end}),
     }
@@ -290,6 +298,96 @@ do
     check('the error is reported', not ok and tostring(err):find('broken chair'), err)
     eq('the broken chair keeps the game\'s picture', W.gps.main_viewport.screentexpos_building_one[1 * 17 + 1], 7)
     check('the chair after it is drawn', W.gps.main_viewport.screentexpos_building_one[2 * 17 + 1] > 1000)
+end
+
+-- ---- materials ----------------------------------------------------------------------------------
+do
+    local function material(flags, pattern) return {material={flags=flags, state_color={Solid=pattern}}} end
+    local function descriptors()
+        local shades = {}
+        for i = 0, 53 do shades[i] = 200 - i end
+        -- pattern 0 has no colour, pattern 1 is colour 2, pattern 2 is colour 0, pattern 3 names a colour that is not there
+        return {colors=vec{{palette={color=palette}}, {palette={color=palette}}, {palette={color=shades}}},
+                patterns=vec{{colors=vec{}}, {colors=vec{2}}, {colors=vec{0}}, {colors=vec{9}}}}
+    end
+    W = new_world(); W.window_x, W.window_y, W.window_z = 0, 0, 10
+    W.descriptors = descriptors()
+    W.materials = {['420:5']=material({WOOD=true}, 1), ['0:7']=material({IS_METAL=true, IS_STONE=true}, 2),
+                   ['3:-1']=material({IS_GLASS=true, IS_METAL=true}, 0), ['0:8']=material({IS_STONE=true}, 3),
+                   ['0:9']=material({}, -1), ['1:5']=material({IS_METAL=true}, 1)}
+    m = load_script(); I = m.internal
+    local wood = I.material_tint(420, 5)
+    eq('wood key: colour 2, wood bit', wood & 1, 1); eq('wood key colour', wood // 8, 3)
+    local metal = I.material_tint(0, 7)
+    eq('colour 0 is key 8 and up, not the default palette', metal // 8, 1)
+    eq('metal is not wood', metal & 1, 0)
+    local glass = I.material_tint(3, -1)
+    check('a pattern without colours gives the default palette', glass < 8, glass)
+    check('glass wins over metal, metal over stone', (glass >> 1 & 3) ~= (metal >> 1 & 3) and (metal >> 1 & 3) ~= (I.material_tint(0, 8) >> 1 & 3))
+    check('a colour that is not there gives the default palette', I.material_tint(0, 8) < 8)
+    eq('no flags is stone', I.material_tint(0, 9), I.material_tint(0, 8))
+    eq('unknown material is stone', I.material_tint(77, 77), I.material_tint(0, 8))
+    eq('a chair with no item is stone', I.chair_tint({contained_items=vec{}}), I.material_tint(0, 8))
+
+    local a = chair(1, 1, 1, 10, {mat={420, 5}})
+    chair(2, 2, 1, 10, {mat={0, 7}}); chair(3, 3, 1, 10, {mat={420, 5}}); chair(4, 4, 1, 10, {mat={1, 5}})
+    chair(5, 5, 1, 10, {mat={420, 5}}); chair(6, 6, 1, 10, {mat={420, 5}}); chair(7, 7, 1, 10, {mat={420, 5}})
+    eq('chair takes the colour of its first item', I.chair_tint(a), wood)
+    check('materials sharing an index or a type are told apart', I.chair_tint(W.buildings[4]) ~= wood and I.chair_tint(W.buildings[4]) ~= metal)
+    eq('same type, other index: not the cached colour', I.chair_tint({contained_items=W.buildings[2].contained_items}) ~= nil and I.chair_tint(chair(8, 8, 1, 9, {mat={0, 8}})), I.material_tint(0, 8))
+    local cells = W.gps.main_viewport.screentexpos_building_one
+    for i = 0, 25 * 17 - 1 do cells[i] = 7 end
+    m.set_nudge(5, 1, 0); m.set_nudge(6, 0, 1); m.set_nudge(7, 0, 40)
+    I.draw_chairs()
+    local function at(x) return cells[x * 17 + 1] end
+    check('same material, same tile', at(1) == at(3) and at(1) > 1000)
+    check('another material, another tile', at(2) ~= at(1) and at(4) ~= at(1) and at(4) ~= at(2))
+    check('a chair moved sideways gets its own tile', at(5) ~= at(1))
+    check('a chair moved down gets its own tile', at(6) ~= at(1) and at(6) ~= at(5))
+    eq('a move past the edge stops at the edge', at(7), at(6))
+    local changed = 0
+    for i = 0, 25 * 17 - 1 do if cells[i] ~= 7 then changed = changed + 1 end end
+    eq('only the seven chairs changed', changed, 7)
+
+    -- the picture really is painted from the material's colour
+    local dark = I.paint_tile(wood, S, 0, 0)
+    local light = I.paint_tile(wood - 16, S, 0, 0)     -- same class, colour 0
+    local differs = false
+    for i = 1, 1024 do if dark[i] ~= light[i] then differs = true end end
+    check('another colour, another picture', differs)
+end
+
+-- ---- the edges of the layers --------------------------------------------------------------------
+do
+    -- chairs just outside the view, every cell filled: nothing may change
+    W = new_world(); W.window_x, W.window_y, W.window_z = 100, 50, 10
+    local cells = W.gps.main_viewport.screentexpos_building_one
+    for i = 0, 25 * 17 - 1 do cells[i] = 7 end
+    chair(1, 103, 49, 10); chair(2, 103, 67, 10); chair(3, 99, 52, 10); chair(4, 125, 52, 10)
+    chair(5, 100, 49, 10); chair(6, 124, 67, 10)
+    m = load_script(); m.internal.draw_chairs()
+    local changed = 0
+    for i, v in pairs(cells) do if v ~= 7 or i < 0 or i >= 25 * 17 then changed = changed + 1 end end
+    eq('a chair one tile outside the view changes nothing', changed, 0)
+
+    -- a lower layer with its own size
+    W = new_world(); W.window_x, W.window_y, W.window_z = 0, 0, 10
+    W.gps.lower_viewport[0] = viewport(40, 10)
+    W.gps.lower_viewport[0].screentexpos_building_one[30 * 10 + 3] = 7
+    chair(1, 30, 3, 9)
+    m = load_script(); m.internal.draw_chairs()
+    check('a lower layer is indexed by its own size', W.gps.lower_viewport[0].screentexpos_building_one[30 * 10 + 3] > 1000)
+
+    -- layers that are missing or not filled
+    W = new_world(); W.window_x, W.window_y, W.window_z = 0, 0, 10
+    W.gps.lower_viewport[0] = nil
+    W.gps.lower_viewport[1].screentexpos_building_one = nil
+    chair(1, 1, 1, 9); chair(2, 1, 1, 8); chair(3, 2, 1, 10)
+    W.gps.main_viewport.screentexpos_building_one[2 * 17 + 1] = 7
+    m = load_script()
+    local ok, err = pcall(m.internal.draw_chairs)
+    check('missing layers are skipped quietly', ok, err)
+    check('and the rest is drawn', W.gps.main_viewport.screentexpos_building_one[2 * 17 + 1] > 1000)
 end
 
 print(('%d checks, %d failed'):format(count, failures))

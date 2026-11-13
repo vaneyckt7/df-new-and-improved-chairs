@@ -43,6 +43,10 @@ Unsubscribe. Also delete any copy of this mod left under mods and data/installed
 Version 1.0 copied a compiled plugin into DFHack's folder. Nothing uses it any more. With the game closed, delete these two files from the folder that contains DFHack's hack folder (in Steam: DFHack, Manage, Browse local files):
 [code]hack/plugins/improved-chairs.plug.dll
 hack/lua/plugins/improved-chairs.lua[/code]
+If you installed 1.0 by hand from its archive, also delete these three, or the old script is used in place of this mod and no chair changes:
+[code]hack/scripts/improved-chairs.lua
+hack/data/art/chair_slat_template.png
+hack/data/art/chair_controls.png[/code]
 Your saved facings and positions are kept.
 
 [h2]Installing by hand instead[/h2]

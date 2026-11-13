@@ -421,6 +421,7 @@ local function draw_chair(b, main, lower, wx, wy, wz)
     local sx, sy = b.centerx - wx, b.centery - wy
     if sx < 0 or sx >= dim_x or sy < 0 or sy >= dim_y then return end
     local cells = vp.screentexpos_building_one
+    if not cells then return end      -- a layer the game has not filled
     local cell = sx * dim_y + sy
     -- a chair still being built is drawn by the game as a construction site
     if cells[cell] ~= 0 and b:getBuildStage() >= b:getMaxBuildStage() then
@@ -681,7 +682,8 @@ OVERLAY_WIDGETS = { sheet = ImprovedChairsOverlay, map = ImprovedChairsMapOverla
 
 -- For test/run_tests.lua only.
 internal = {tile_room=tile_room, tone=tone, paint_pixel=paint_pixel, paint_tile=paint_tile,
-            clamp_nudge=clamp_nudge, draw_chairs=draw_chairs, HOME=HOME}
+            clamp_nudge=clamp_nudge, draw_chairs=draw_chairs, HOME=HOME,
+            material_tint=material_tint, chair_tint=chair_tint}
 
 -- ---- command line ---------------------------------------------------------------------------
 --

@@ -118,8 +118,8 @@ hack/plugins/improved-chairs.plug.dll
 hack/lua/plugins/improved-chairs.lua
 ```
 
-If you installed 1.0 by hand from its archive, also delete these, or the old script is used in
-place of the new one and no chair changes:
+If you installed 1.0 by hand from its archive, also delete these, or a Workshop install of 1.1
+loses to the old script and no chair changes:
 
 ```
 hack/scripts/improved-chairs.lua
@@ -143,7 +143,7 @@ goes through the built chairs, and for each one in view puts the texture for its
 facing and position in the chair's cell. Chairs up to eight levels below, seen through open space, are in
 the game's lower layers and get the same treatment. Creatures and items are separate layers that the game
 draws over the building layer as before, so a dwarf on the chair's tile is drawn over the chair
-(verified, as are zooming and scrolling).
+(verified, as is scrolling).
 
 Only a cell the game has put a building picture in is changed, so a chair the game does not
 show stays unshown. A chair that is still being built is drawn as the game draws it, and so is
