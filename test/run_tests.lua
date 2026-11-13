@@ -69,8 +69,17 @@ local function load_script()
         world={isFortressMode=function() return W.fortress end},
         matinfo={decode=function(t, i) return W.materials and W.materials[t .. ':' .. i] or nil end},
         persistent={
-            getSiteData=function(key, default) local d = W.site[key]; if d == nil then return default end; return copy(d) end,
-            saveSiteData=function(key, data) W.site[key] = copy(data); W.saves = W.saves + 1 end,
+            getSiteData=function(key, default)
+                if W.no_site then return default end
+                local d = W.site[key]
+                if d == 'UNDECODABLE' then error('json: unexpected end of input') end
+                if d == nil then return default end
+                return copy(d)
+            end,
+            saveSiteData=function(key, data)
+                if W.no_site or W.no_save then error("unable to save data in key '" .. key .. "'") end
+                W.site[key] = copy(data); W.saves = W.saves + 1
+            end,
         },
         textures=setmetatable({
             createTile=function(px) W.next_handle = W.next_handle + 1; W.last_pixels = px; return W.next_handle end,
@@ -80,7 +89,10 @@ local function load_script()
     setmetatable(env.dfhack, {__index=function() return anything() end})
     env.df = {
         building_chairst=CHAIR_TYPE,
-        building={find=function(id) return W.buildings[id] end},
+        building={find=function(id)   -- like the game: integers only, and only 32 bits of them
+            if math.type(id) ~= 'integer' then error('integer expected') end
+            return W.buildings[id & 0xffffffff]
+        end},
         global=setmetatable({}, {__index=function(_, k)
             if k == 'gps' then return W.gps end
             if k == 'world' then return {buildings={other={CHAIR=W.chairs}}, raws={descriptors=W.descriptors or {colors={}, patterns={}}}} end
@@ -388,6 +400,124 @@ do
     local ok, err = pcall(m.internal.draw_chairs)
     check('missing layers are skipped quietly', ok, err)
     check('and the rest is drawn', W.gps.main_viewport.screentexpos_building_one[2 * 17 + 1] > 1000)
+end
+
+-- ---- saves that cannot be trusted or cannot be made ----------------------------------------------
+do  -- a reclaimed fortress: DFHack has no site to save to until the game's first save
+    W = new_world(); chair(1, 5, 5, 10); chair(2, 6, 5, 10)
+    W.no_site = true
+    local ok, err = pcall(function() m = load_script() end)
+    check('loading with no site does not fail', ok, err)
+    I = m.internal
+    ok, err = pcall(function() m.set_facing(1, Wd); m.set_nudge(1, 2, 0) end)
+    check('turning and nudging with no site does not fail', ok, err)
+    eq('the chair is turned meanwhile', m.get_facing(1), Wd)
+    check('a save is owed', I.save_pending())
+    I.retry_save(); check('still owed while there is no site', I.save_pending())
+    W.no_site = false
+    I.retry_save()
+    local d = W.site['improved-chairs']
+    check('saved once the site exists, with the format', d and d.format == 2 and d['1'] == Wd and d['1:nudge'][1] == 2, d and d.format)
+    check('nothing owed any more', not I.save_pending())
+    m.restore()
+    local dx, dy = m.get_nudge(1)
+    check('and it reads back the same', m.get_facing(1) == Wd and dx == 2 and dy == 0, dx .. ',' .. dy)
+end
+
+do  -- the site's own data turns up after a refused save: this session's changes go on top
+    W = new_world(); chair(1, 5, 5, 10); chair(2, 6, 5, 10); chair(3, 7, 5, 10)
+    W.site['improved-chairs'] = {format=2, ['1']=E, ['2']=N, ['2:nudge']={1, 1}}
+    W.no_site = true
+    m = load_script(); I = m.internal
+    m.set_facing(1, Wd); m.set_nudge(3, 0, 1)
+    W.no_site = false
+    I.retry_save()
+    local d = W.site['improved-chairs']
+    check('changed chair wins', m.get_facing(1) == Wd and d['1'] == Wd)
+    check('untouched chair keeps its saved state', m.get_facing(2) == N and d['2'] == N and d['2:nudge'][1] == 1)
+    check('new nudge kept', d['3:nudge'] and d['3:nudge'][2] == 1)
+end
+
+do  -- `improved-chairs status` runs the file again in the same environment: owed changes survive
+    W = new_world(); chair(1, 5, 5, 10); chair(2, 6, 5, 10)
+    W.no_site = true
+    m = load_script()
+    m.set_facing(1, Wd); m.set_nudge(2, 0, 1)
+    assert(loadfile(SCRIPT, 't', m))()
+    I = m.internal
+    local dx, dy = m.get_nudge(2)
+    check('owed changes survive the file being run again', m.get_facing(1) == Wd and dy == 1 and I.save_pending())
+    W.no_site = false
+    I.retry_save()
+    local d = W.site['improved-chairs']
+    check('and are saved in the end', d and d['1'] == Wd and d['2:nudge'][2] == 1)
+    assert(loadfile(SCRIPT, 't', m))()
+    check('nothing is carried once saved', m.get_facing(1) == Wd and not m.internal.save_pending())
+end
+
+do  -- the data turns up but the save is refused once more: the changes are still owed
+    W = new_world(); chair(1, 5, 5, 10); chair(2, 6, 5, 10)
+    W.no_site = true
+    m = load_script(); I = m.internal
+    m.set_facing(1, Wd)
+    W.no_site = false; W.no_save = true
+    W.site['improved-chairs'] = {format=2, ['1']=E, ['2']=N}
+    I.retry_save()
+    check('still owed', I.save_pending())
+    W.site['improved-chairs'] = {format=2, ['1']=E, ['2']=E}
+    W.no_save = false
+    I.retry_save()
+    local d = W.site['improved-chairs']
+    check('the change survives a second refusal', m.get_facing(1) == Wd and d['1'] == Wd, d['1'])
+    check('and the untouched chair follows the save', m.get_facing(2) == E and d['2'] == E)
+end
+
+for _, bad in ipairs{5, true, 'abc', 'UNDECODABLE'} do  -- data that is not a table
+    W = new_world(); chair(1, 5, 5, 10)
+    W.site['improved-chairs'] = bad
+    W.site['chair-facing'] = {['1']=E}
+    local ok, err = pcall(function() m = load_script() end)
+    check('bad site data (' .. tostring(bad) .. ') does not fail the load', ok, err)
+    eq('bad site data does not bring the old name back', m.get_facing(1), S)
+    ok, err = pcall(m.set_facing, 1, Wd)
+    check('and is written over by the next change', ok and type(W.site['improved-chairs']) == 'table' and W.site['improved-chairs']['1'] == Wd, err)
+end
+
+do  -- odd keys and values
+    W = new_world(); chair(7, 5, 5, 10); chair(8, 6, 5, 10); chair(9, 7, 5, 10)
+    W.site['improved-chairs'] = {format=2, ['007']=E, ['008:nudge']={0, 1}, ['9']=1.5, ['9:nudge']={0/0, 'x'},
+                                 ['99999999999999999999']=E, ['8']={1}}
+    local ok, err = pcall(function() m = load_script() end)
+    check('odd keys do not fail the load', ok, err)
+    eq('zero-padded key read', m.get_facing(7), E)
+    local d = W.site['improved-chairs']
+    check('and saved again as the plain number', d['007'] == nil and d['7'] == E and d['008:nudge'] == nil and d['8:nudge'][2] == 1)
+    m.set_facing(7, S); m.restore()
+    eq('so it can be cleared', m.get_facing(7), S)
+    eq('fractional facing floored', m.get_facing(9), E)
+    local dx, dy = m.get_nudge(9); check('NaN and string nudge dropped', dx == 0 and dy == 0)
+    dx, dy = m.set_nudge(8, 0/0, 1/0); check('NaN nudge is no nudge, infinity is clamped', dx == 0 and dy == math.floor(dy) and dy < 32, dx .. ',' .. dy)
+    W.site['improved-chairs'] = {format=2, [tostring(4294967296 + 8)]=E}
+    m.restore(); eq('an id beyond 32 bits does not land on another chair', m.get_facing(8), S)
+end
+
+do  -- a save from a newer format is shown and never written
+    W = new_world(); chair(1, 5, 5, 10)
+    W.site['improved-chairs'] = {format=3, ['1']=E, future={1, 2}}
+    m = load_script()
+    eq('newer format: facing shown', m.get_facing(1), E)
+    m.set_facing(1, Wd)
+    check('newer format: not written over', W.saves == 0 and W.site['improved-chairs'].future ~= nil and W.site['improved-chairs']['1'] == E)
+end
+
+do  -- two copies of the script each keep their own state-change handler
+    W = new_world(); chair(1, 5, 5, 10)
+    m = load_script()
+    local n = 0
+    for key in pairs(m.dfhack.onStateChange) do n = n + 1; check('handler key names the copy', key ~= 'improved-chairs', key) end
+    eq('one handler', n, 1)
+    W.site['improved-chairs'] = 5
+    check('a failing restore does not escape the handler', pcall(m.dfhack.onStateChange[next(m.dfhack.onStateChange)], 1))
 end
 
 print(('%d checks, %d failed'):format(count, failures))

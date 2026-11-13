@@ -242,16 +242,36 @@ local nudge_of = {}     -- building id -> {dx, dy}; absent = none
 -- once and saved under the new name from then on.
 local OLD_SITE_KEY = 'chair-facing'
 
+-- The saved table, or nil when the site has none.  Anything stored that is not a table (a save
+-- another tool wrote to, a damaged file) counts as an empty one and is written over.
 local function load_data()
-    return dfhack.persistent.getSiteData(SITE_KEY) or dfhack.persistent.getSiteData(OLD_SITE_KEY, {})
+    local ok, data = pcall(dfhack.persistent.getSiteData, SITE_KEY)
+    if ok and data == nil then ok, data = pcall(dfhack.persistent.getSiteData, OLD_SITE_KEY) end
+    if ok and data == nil then return nil end
+    return type(data) == 'table' and data or {}
 end
 
 -- What saved nudges count from.  1 (no marker): where the template draws the chair.  2: the
 -- resting position for the chair's facing.  restore() converts older data once.
 local FORMAT_KEY, FORMAT = 'format', 2
 
-local function save_data(data)
-    dfhack.persistent.saveSiteData(SITE_KEY, data)
+-- frozen: nothing may be saved (no fortress map; the art is missing, so saved nudges could not
+-- be read; or the save is from a newer version of the mod).
+-- site_pending: a save was refused.  DFHack cannot save for a reclaimed fortress until the game
+-- has given it a site number, which happens at its first save; the map overlay tries again
+-- every so often, and `changed` holds the chairs set in the meantime.
+local frozen, site_pending, changed = true, false, {}
+
+-- Write every facing and nudge held here to the save; false if that could not be done.
+local function save_state()
+    if frozen then return false end
+    local data = {[FORMAT_KEY]=FORMAT}
+    for id, facing in pairs(facing_of) do data[tostring(id)] = facing end
+    for id, n in pairs(nudge_of) do data[tostring(id) .. ':nudge'] = {n[1], n[2]} end
+    local ok = pcall(dfhack.persistent.saveSiteData, SITE_KEY, data)
+    site_pending = not ok
+    if ok then changed = {} end
+    return ok
 end
 
 -- Facing of a chair building (DEFAULT if it has never been turned).
@@ -259,22 +279,16 @@ function get_facing(building_id)
     return facing_of[building_id] or DEFAULT
 end
 
-local function nudge_key(building_id)
-    return tostring(building_id) .. ':nudge'
-end
-
 -- Set a chair's facing, here and in the save; anything but NORTH..WEST means DEFAULT.
 -- A chair that is turned starts where it rests for the new facing: any nudge it had belonged to the old view
 -- and is dropped.
 function set_facing(building_id, facing)
-    if type(facing) ~= 'number' or facing < NORTH or facing > WEST then facing = DEFAULT end
+    if type(facing) ~= 'number' or not (facing >= NORTH and facing <= WEST) then facing = DEFAULT end
     facing = math.floor(facing)
     facing_of[building_id] = facing ~= DEFAULT and facing or nil
     nudge_of[building_id] = nil
-    local data = load_data()
-    data[tostring(building_id)] = facing_of[building_id]
-    data[nudge_key(building_id)] = nil
-    save_data(data)
+    changed[building_id] = true
+    save_state()
 end
 
 -- How many pixels a chair with this facing can be nudged toward dir (NORTH..WEST) from where it
@@ -292,9 +306,12 @@ function get_room(facing, dir)
     return math.max(0, least - used)
 end
 
+-- Whole pixels, held to the room the facing has; a value that is not a usable number is 0.
 local function clamp_nudge(facing, dx, dy)
-    dx = math.max(-get_room(facing, WEST), math.min(get_room(facing, EAST), math.floor(dx)))
-    dy = math.max(-get_room(facing, NORTH), math.min(get_room(facing, SOUTH), math.floor(dy)))
+    if type(dx) ~= 'number' or dx ~= dx then dx = 0 end
+    if type(dy) ~= 'number' or dy ~= dy then dy = 0 end
+    dx = math.floor(math.max(-get_room(facing, WEST), math.min(get_room(facing, EAST), dx)))
+    dy = math.floor(math.max(-get_room(facing, NORTH), math.min(get_room(facing, SOUTH), dy)))
     return dx, dy
 end
 
@@ -311,79 +328,132 @@ function set_nudge(building_id, dx, dy)
     -- without the template the room is unknown: leave the chair's nudge as it is
     if not template then return get_nudge(building_id) end
     dx, dy = clamp_nudge(get_facing(building_id), dx, dy)
-    local moved = dx ~= 0 or dy ~= 0
-    nudge_of[building_id] = moved and {dx, dy} or nil
-    local data = load_data()
-    data[nudge_key(building_id)] = moved and {dx, dy} or nil
-    save_data(data)
+    nudge_of[building_id] = (dx ~= 0 or dy ~= 0) and {dx, dy} or nil
+    changed[building_id] = true
+    save_state()
     return dx, dy
+end
+
+local function chair_with_id(id)
+    if math.type(id) ~= 'integer' then return nil end
+    local b = df.building.find(id)
+    -- the game keeps 32 bits of the number: a larger one must not land on some other chair
+    return b and b.id == id and b._type == df.building_chairst and b or nil
 end
 
 -- After a map load: read the saved facings and nudges, dropping entries whose chair is gone (and
 -- anything else that is neither, such as the art-set choices earlier versions saved).
 function restore()
     facing_of, nudge_of = {}, {}
+    frozen, site_pending, changed = true, false, {}
     -- only a fortress owns its chairs; an adventurer visiting the site must not prune the table
     if not dfhack.isMapLoaded() or not dfhack.world.isFortressMode() then return end
     local data = load_data()
-    local dirty = false
-    -- Only data older than this format is converted; data from a newer one is left alone.
-    local old_origin = (tonumber(data[FORMAT_KEY]) or 0) < FORMAT
-    if old_origin then dirty = true end
+    local found = data ~= nil
+    data = data or {}
+    local format = tonumber(data[FORMAT_KEY]) or 0
+    -- Only data older than this format is converted; data from a newer one is shown as well as
+    -- it can be read and never written over.
+    local old_origin = format < FORMAT
+    local dirty = old_origin
     local nudges = {}
-    for key, value in pairs(data) do
-        if key == FORMAT_KEY then goto continue end
-        local id = tostring(key):match('^%d+$') and tonumber(key)
-        local b = id and df.building.find(id)
-        if b and b._type == df.building_chairst and type(value) == 'number'
-                and value >= NORTH and value <= WEST and value ~= DEFAULT then
+    for raw_key, value in pairs(data) do
+        if raw_key == FORMAT_KEY then goto continue end
+        local key = tostring(raw_key)
+        local id = key:match('^%d+$') and tonumber(key)
+        local b = id and chair_with_id(id)
+        if b and type(value) == 'number' and value >= NORTH and value <= WEST
+                and math.floor(value) ~= DEFAULT then
             facing_of[b.id] = math.floor(value)
-        elseif tostring(key):match('^%d+:nudge$') then
+            -- a key written some other way ("007") is saved again as the plain number
+            if key ~= tostring(b.id) or value ~= math.floor(value) then dirty = true end
+        elseif key:match('^%d+:nudge$') then
             nudges[key] = value
         else
-            data[key] = nil
             dirty = true
         end
         ::continue::
     end
     -- nudges after facings: the room a nudge has depends on the facing.  Without the template the
-    -- room is unknown, so the saved nudges are left alone for the next load.
-    if not template then nudges = {}; if old_origin then return end end
+    -- room is unknown, so the saved nudges stay as they are in the save, which is not written.
+    if not template or format > FORMAT then
+        if template then
+            for key, value in pairs(nudges) do
+                local b = chair_with_id(tonumber(key:match('^%d+')))
+                if b and type(value) == 'table' then
+                    local dx, dy = clamp_nudge(get_facing(b.id), value[1], value[2])
+                    if dx ~= 0 or dy ~= 0 then nudge_of[b.id] = {dx, dy} end
+                end
+            end
+        end
+        return
+    end
     for key, value in pairs(nudges) do
-        local id = tonumber(key:match('^%d+'))
-        local facing = get_facing(id)
-        local b = df.building.find(id)
+        local b = chair_with_id(tonumber(key:match('^%d+')))
         local dx, dy = 0, 0
-        if b and b._type == df.building_chairst and type(value) == 'table' and type(value[1]) == 'number' and type(value[2]) == 'number' then
+        if b and type(value) == 'table' and type(value[1]) == 'number' and type(value[2]) == 'number' then
+            local facing = get_facing(b.id)
             dx, dy = value[1], value[2]
             -- a nudge saved from the template position: keep the chair where it was drawn
             if old_origin then dx, dy = dx - HOME[facing][1], dy - HOME[facing][2] end
             dx, dy = clamp_nudge(facing, dx, dy)
         end
         if dx ~= 0 or dy ~= 0 then
-            nudge_of[id] = {dx, dy}
-            if dx ~= value[1] or dy ~= value[2] then data[key] = {dx, dy}; dirty = true end
+            nudge_of[b.id] = {dx, dy}
+            if dx ~= value[1] or dy ~= value[2] or key ~= b.id .. ':nudge' then dirty = true end
         else
-            data[key] = nil
             dirty = true
         end
     end
-    if dirty then data[FORMAT_KEY] = FORMAT; save_data(data) end
+    frozen = false
+    if dirty or not found then save_state() end
 end
 
-dfhack.onStateChange[SITE_KEY] = function(event)
+-- Put chairs set this session (ids in mine) back on top of what restore() has just read.
+local function put_back(facings, nudges, mine)
+    if frozen or not next(mine) then return end
+    for id in pairs(mine) do
+        facing_of[id], nudge_of[id] = facings[id], nudges[id]
+    end
+    changed = mine      -- still unsaved if this save is refused too
+    save_state()
+end
+
+-- A save was refused earlier: see whether the site can be saved to now.  If saved data has
+-- turned up for it meanwhile, that is read first and this session's changes go on top.
+local function retry_save()
+    if load_data() == nil then return save_state() end
+    local facings, nudges, mine = facing_of, nudge_of, changed
+    restore()
+    put_back(facings, nudges, mine)
+end
+
+-- One handler per copy of this script: DFHack can have two copies loaded (the installed mod and
+-- the copy a world carries in its own mod list), each with its own tables to fill and empty.
+dfhack.onStateChange[SITE_KEY .. ':' .. DATA] = function(event)
     if event == SC_MAP_LOADED then
-        restore()
+        local ok, err = pcall(restore)
+        if not ok then dfhack.printerr('improved-chairs: could not read the saved chairs: ' .. tostring(err)) end
     elseif event == SC_WORLD_UNLOADED then
         -- building ids, materials and colour indexes are per world
         facing_of, nudge_of, tint_of_material, tile_handles = {}, {}, {}, {}
+        frozen, site_pending, changed = true, false, {}
     end
 end
 
 -- The overlay plugin loads this module at startup, before any map; restore() then finds no map
 -- and the state-change hook does the work.  When the module is (re)loaded with a map already
--- up, restore now.
-restore()
+-- up, restore now.  Running `improved-chairs status` or `reload` runs this file again in the same
+-- environment with fresh tables; chairs whose save is still owed are carried over from the last run.
+do
+    local earlier = unsaved
+    local ok, err = pcall(function()
+        restore()
+        if earlier then put_back(earlier()) end
+    end)
+    if not ok then dfhack.printerr('improved-chairs: could not read the saved chairs: ' .. tostring(err)) end
+end
+function unsaved() return facing_of, nudge_of, changed end
 
 -- ---- the map ------------------------------------------------------------------------------------
 --
@@ -457,10 +527,12 @@ ImprovedChairsMapOverlay.ATTRS{
 }
 
 local draw_failed = false
+local RETRY_FRAMES = 256      -- how often a refused save is tried again
 
 function ImprovedChairsMapOverlay:onRenderFrame(dc, rect)
     ImprovedChairsMapOverlay.super.onRenderFrame(self, dc, rect)
     STATS.frames = STATS.frames + 1
+    if site_pending and STATS.frames % RETRY_FRAMES == 0 then pcall(retry_save) end
     local ok, err = pcall(draw_chairs)
     -- say so once, not sixty times a second
     if not ok and not draw_failed then
@@ -509,11 +581,13 @@ local PEN_LIT  = dfhack.pen.parse{fg=COLOR_LIGHTGREEN, bg=COLOR_BLACK}
 local PEN_RESET = dfhack.pen.parse{fg=COLOR_LIGHTRED, bg=COLOR_BLACK}
 local PEN_NAME = dfhack.pen.parse{fg=COLOR_WHITE, bg=COLOR_BLACK}
 local TITLE_COL = 90      -- first character of the title is this many columns from the right edge
-local MAX_TITLE = 60
 local GAP = 2             -- blank columns between the name and the controls
 local NUDGE_AT = 2                          -- nudge buttons, counted from the turn button's column
 local RESET_AT = NUDGE_AT + #NUDGES + 1     -- the "x"
-local WIDTH = MAX_TITLE + GAP + RESET_AT + 1
+-- The game gives the title 38 columns, up to the rename button.  The name is cut so that the
+-- controls always end inside them, whatever the chair has been named.
+local WIDTH = 38
+local MAX_TITLE = WIDTH - GAP - RESET_AT - 1
 
 -- The controls' art: 8x12 interface cells in a row, 1 turn, 2-5 nudges lit, 6-9 nudges dim,
 -- 10 reset.  Without the file (or in a text-mode game) the controls fall back to characters.
@@ -554,7 +628,7 @@ ImprovedChairsOverlay = defclass(ImprovedChairsOverlay, overlay.OverlayWidget)
 ImprovedChairsOverlay.ATTRS{
     desc='Puts turn and nudge controls in the title of chair view sheets (cosmetic).',
     default_pos={x=-(TITLE_COL - WIDTH + 1), y=7},
-    version=8,
+    version=9,
     default_enabled=true,
     viewscreens='dwarfmode/ViewSheets/BUILDING/Chair',
     frame={w=WIDTH, h=1},
@@ -576,7 +650,22 @@ function ImprovedChairsOverlay:cycle(b)
     set_facing(b.id, (cur + 1) % 4)
 end
 
+-- An error in the sheet widget is reported once and costs that frame's controls or that click,
+-- not every overlay drawn after this one.
+local sheet_failed = false
+local function sheet_guard(ok, ...)
+    if ok then return ... end
+    if not sheet_failed then
+        sheet_failed = true
+        dfhack.printerr('improved-chairs: the sheet controls failed: ' .. tostring((...)))
+    end
+end
+
 function ImprovedChairsOverlay:onInput(keys)
+    return sheet_guard(pcall(self.handle_input, self, keys))
+end
+
+function ImprovedChairsOverlay:handle_input(keys)
     if keys._MOUSE_L then
         local x, y = self:getMousePos()
         local b = x and y == 0 and selected_chair()
@@ -653,7 +742,8 @@ local function swap_icons(b, facing, name_x, name_y)
     if not texpos or not swap_icon(x, y, texpos) then return end
     -- the item list: a built chair holds just the chair, so the first icon below is its
     if #b.contained_items ~= 1 or b.contained_items[0].item:getType() ~= df.item_type.CHAIR then return end
-    if not dfhack.gui.matchFocusString('dwarfmode/ViewSheets/BUILDING/Chair/Items') then return end
+    -- asked of the game's own screen: a DFHack window on top has focus strings of its own
+    if not dfhack.gui.matchFocusString('dwarfmode/ViewSheets/BUILDING/Chair/Items', dfhack.gui.getDFViewscreen(true)) then return end
     texpos = icon_texpos(b, DEFAULT)
     if not texpos then return end
     local g = df.global.gps
@@ -666,6 +756,10 @@ local function swap_icons(b, facing, name_x, name_y)
 end
 
 function ImprovedChairsOverlay:render(dc)
+    sheet_guard(pcall(self.draw, self, dc))
+end
+
+function ImprovedChairsOverlay:draw(dc)
     local b = selected_chair()
     if not b then return end
     self.facing = get_facing(b.id)
@@ -683,7 +777,8 @@ OVERLAY_WIDGETS = { sheet = ImprovedChairsOverlay, map = ImprovedChairsMapOverla
 -- For test/run_tests.lua only.
 internal = {tile_room=tile_room, tone=tone, paint_pixel=paint_pixel, paint_tile=paint_tile,
             clamp_nudge=clamp_nudge, draw_chairs=draw_chairs, HOME=HOME,
-            material_tint=material_tint, chair_tint=chair_tint}
+            material_tint=material_tint, chair_tint=chair_tint,
+            retry_save=retry_save, save_pending=function() return site_pending end}
 
 -- ---- command line ---------------------------------------------------------------------------
 --
