@@ -27,14 +27,6 @@ The mod is a plain DFHack script. There is no compiled plugin, so it is not tied
 [/list]
 Existing saves work. Do not add the mod to a world's mod list at world generation; it does nothing there.
 
-[h2]Installing by hand instead[/h2]
-[olist]
-[*]Download the source archive of the latest release from [url=https://github.com/vaneyckt7/df-new-and-improved-chairs/releases]the releases page[/url].
-[*]Extract it into the mods folder of the game's data folder and name the folder new_and_improved_chairs, so that mods/new_and_improved_chairs/info.txt exists.
-[*]Start the game through DFHack. Nothing needs enabling.
-[/olist]
-To remove a hand install, delete that folder.
-
 [h2]What the mod puts on your computer[/h2]
 Nothing but the Workshop download and the copy the game itself makes of every subscribed mod. DFHack runs scripts straight from a Workshop mod, so there is no install step. Besides info.txt, the preview picture, the licence and a readme, the mod is three files, used where they are:
 [code]scripts_modinstalled/improved-chairs.lua

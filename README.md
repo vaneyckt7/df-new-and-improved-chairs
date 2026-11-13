@@ -64,10 +64,6 @@ so a moved widget no longer lines up with the sheet.
 
 ## Installation
 
-Subscribe on the Steam Workshop, or copy the mod folder in by hand.
-
-### From the Steam Workshop
-
 1. Subscribe and wait for Steam to finish downloading.
 2. Fully exit the game, start it again through DFHack and load your fortress.
 
@@ -96,17 +92,6 @@ folder itself on a portable install.
 All messages go to the DFHack console. If chairs do not change, look there for lines starting
 with `improved-chairs:`, and check that `overlay list chairs` shows both widgets
 enabled.
-
-### By hand
-
-1. Download the source archive of the latest release from the
-   [releases page](https://github.com/vaneyckt7/df-new-and-improved-chairs/releases).
-2. Extract it into the `mods` folder of the game's data folder (see above for where that is)
-   and name the folder `new_and_improved_chairs`, so that
-   `mods/new_and_improved_chairs/info.txt` exists.
-3. Start the game through DFHack. There is nothing to enable.
-
-To update, replace the folder. To uninstall, delete it.
 
 ## How it works
 
