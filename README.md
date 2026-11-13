@@ -14,8 +14,8 @@ The chair is coloured from the material it is made of:
 
 ## Requirements
 
-DFHack. The mod is plain Lua run by DFHack: there is no compiled plugin, so it is not tied to
-one DFHack build. Tested on:
+DFHack, kept up to date (Steam does that for you). The mod is plain Lua run by DFHack: there is
+no compiled plugin, so it is not tied to one DFHack build. Tested on:
 
 - Dwarf Fortress 53.16 (Steam version, on Windows under Wine), with the graphical tiles
 - DFHack 53.16-r1.1
@@ -218,10 +218,8 @@ and which map cell a chair is drawn in. `package.sh` runs them.
   the game's own chairs show in the meantime.
 - Semi-transparent pixels (the shadow under the seat) can differ from version 1.0 by one step
   of 255 in a colour channel.
-- On DFHack 53.16-r1.1 and older, a reclaimed fortress cannot store anything until the game has
-  saved it once. Chairs turned or nudged before that first save are kept and stored right after
-  it, so they reach the save file with the second save: save once more before quitting.
-  DFHack 53.16-r2 and later do not have this gap.
+- With a DFHack older than 53.16-r2, chairs turned or nudged in a reclaimed fortress before its
+  first save reach the save file only with the second save. Current DFHack does not have this gap.
 - Fortress mode only. In adventure mode chairs are drawn by the game; visiting your old fort as
   an adventurer leaves the stored facings untouched but does not draw them.
 

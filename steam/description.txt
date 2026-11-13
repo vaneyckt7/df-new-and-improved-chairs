@@ -13,7 +13,7 @@ It is purely cosmetic. The game has no idea of chair facing, so nothing about th
 Facings and positions are saved with your fortress.
 
 [h2]Requirements[/h2]
-[b]Requires DFHack (free on Steam). Without it this mod does nothing.[/b] Tested on:
+[b]Requires DFHack (free on Steam), kept up to date. Without it this mod does nothing.[/b] Tested on:
 [list]
 [*]Dwarf Fortress 53.16 (Steam, on Windows under Wine)
 [*]DFHack 53.16-r1.1
