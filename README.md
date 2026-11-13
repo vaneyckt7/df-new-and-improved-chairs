@@ -99,7 +99,8 @@ enabled.
 
 ### By hand
 
-1. Download the source archive of the latest release from the releases page.
+1. Download the source archive of the latest release from the
+   [releases page](https://github.com/vaneyckt7/df-new-and-improved-chairs/releases).
 2. Extract it into the `mods` folder of the game's data folder (see above for where that is)
    and name the folder `new_and_improved_chairs`, so that
    `mods/new_and_improved_chairs/info.txt` exists.

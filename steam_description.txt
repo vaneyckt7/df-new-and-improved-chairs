@@ -29,7 +29,7 @@ Existing saves work. Do not add the mod to a world's mod list at world generatio
 
 [h2]Installing by hand instead[/h2]
 [olist]
-[*]Download the source archive of the latest release from [url=REPLACE_WITH_RELEASE_URL]the releases page[/url].
+[*]Download the source archive of the latest release from [url=https://github.com/vaneyckt7/df-new-and-improved-chairs/releases]the releases page[/url].
 [*]Extract it into the mods folder of the game's data folder and name the folder new_and_improved_chairs, so that mods/new_and_improved_chairs/info.txt exists.
 [*]Start the game through DFHack. Nothing needs enabling.
 [/olist]
@@ -59,4 +59,4 @@ overlay disable improved-chairs.sheet[/code]
 [*]Moving a chair moves only its picture. A dwarf using it is still drawn in the middle of the tile.
 [/list]
 
-Source and issues: [url=REPLACE_WITH_REPO_URL]GitHub[/url]
+Source and issues: [url=https://github.com/vaneyckt7/df-new-and-improved-chairs]GitHub[/url]
