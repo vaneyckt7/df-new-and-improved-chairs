@@ -8,8 +8,9 @@
 -- Facings and nudges are kept here and saved with the fortress (DFHack site data, keyed by
 -- building id).  A chair that has never been turned faces south.
 --
--- Site data: ["<building id>"] = facing 0..3 (south is not stored), and for a chair that has been nudged
--- ["<building id>:nudge"] = {dx, dy}, pixels from where the chair rests for its facing (+x east, +y south).
+-- Site data: ["<building id>"] = facing 0..3 (south is not stored), and for a chair that has
+-- been nudged ["<building id>:nudge"] = {dx, dy}, pixels from where the chair rests for its
+-- facing (+x east, +y south).
 
 local overlay = require('plugins.overlay')
 
@@ -257,9 +258,9 @@ local FORMAT_KEY, FORMAT = 'format', 2
 
 -- frozen: nothing may be saved (no fortress map; the art is missing, so saved nudges could not
 -- be read; or the save is from a newer version of the mod).
--- site_pending: a save was refused.  DFHack cannot save for a reclaimed fortress until the game
--- has given it a site number, which happens at its first save; the map overlay tries again
--- every so often, and `changed` holds the chairs set in the meantime.
+-- site_pending: a save was refused.  DFHack before 53.16-r2 cannot save for a reclaimed
+-- fortress until the game has given it a site number, which happens at its first save; the map
+-- overlay tries again every so often, and `changed` holds the chairs set in the meantime.
 local frozen, site_pending, changed = true, false, {}
 
 -- Write every facing and nudge held here to the save; false if that could not be done.
@@ -288,8 +289,8 @@ function get_facing(building_id)
 end
 
 -- Set a chair's facing, here and in the save; anything but NORTH..WEST means DEFAULT.
--- A chair that is turned starts where it rests for the new facing: any nudge it had belonged to the old view
--- and is dropped.
+-- A chair that is turned starts where it rests for the new facing: any nudge it had belonged
+-- to the old view and is dropped.
 function set_facing(building_id, facing)
     if type(facing) ~= 'number' or not (facing >= NORTH and facing <= WEST) then facing = DEFAULT end
     facing = math.floor(facing)
@@ -323,7 +324,8 @@ local function clamp_nudge(facing, dx, dy)
     return dx, dy
 end
 
--- A chair's nudge: dx, dy in pixels (+x east, +y south); 0, 0 when it sits where it rests for its facing.
+-- A chair's nudge: dx, dy in pixels (+x east, +y south); 0, 0 when it sits where it rests for
+-- its facing.
 function get_nudge(building_id)
     local n = nudge_of[building_id]
     if n then return n[1], n[2] end
@@ -451,8 +453,9 @@ end
 
 -- The overlay plugin loads this module at startup, before any map; restore() then finds no map
 -- and the state-change hook does the work.  When the module is (re)loaded with a map already
--- up, restore now.  Running `improved-chairs status` or `reload` runs this file again in the same
--- environment with fresh tables; chairs whose save is still owed are carried over from the last run.
+-- up, restore now.  Running `improved-chairs status` or `reload` runs this file again in the
+-- same environment with fresh tables; chairs whose save is still owed are carried over from
+-- the last run.
 do
     local earlier = unsaved
     local ok, err = pcall(function()
@@ -577,7 +580,8 @@ end
 -- always starts 90 columns from that edge, so the widget is anchored there. (A negative overlay
 -- x anchors the widget's right edge: x = -(r + 1) where r is the gap to the screen edge.)
 
--- nudge buttons in the order drawn: fallback glyph (CP437 triangles), pixel step, direction for get_room
+-- nudge buttons in the order drawn: fallback glyph (CP437 triangles), pixel step, direction
+-- for get_room
 local NUDGES = {
     {glyph=string.char(17), dx=-1, dy=0, dir=WEST},
     {glyph=string.char(30), dx=0, dy=-1, dir=NORTH},

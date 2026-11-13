@@ -6,25 +6,26 @@ purely cosmetic: the game has no notion of chair facing, so nothing about the ch
 changes; the save only gains a small DFHack note of each turned or moved chair. Remove the mod
 and every chair looks exactly as it did before.
 
-![A dining room with chairs facing all four ways](docs/room.png)
+![A dining hall with chairs of many materials, turned and moved](docs/room.png)
 
 The chair is coloured from the material it is made of:
 
-![The chair in every material, front and side view](docs/materials.png)
+![The chair in some 250 materials, front and side view](docs/materials.png)
 
 ## Requirements
 
 DFHack, kept up to date (Steam does that for you). The mod is plain Lua run by DFHack: there is
 no compiled plugin, so it is not tied to one DFHack build. Tested on:
 
-- Dwarf Fortress 53.16 (Steam version, on Windows under Wine), with the graphical tiles
-- DFHack 53.16-r1.1
+- Dwarf Fortress 53.17 (the Steam Windows build, run under Wine on macOS), with the graphical
+  tiles
+- DFHack 53.17-r1 (and 53.16-r1.1 on Dwarf Fortress 53.16)
 
 Native Windows, Linux and Proton are untested.
 
 ## Using it
 
-![The chair's sheet with the turn and move controls](docs/sheet.png)
+![A selected chair with the turn button and move triangles after its name](docs/sheet.png)
 
 Click a chair. After its name in the view sheet there is a small circle with an arrow: click it
 to turn the chair. A chair starts out facing south, toward you; each click turns it a quarter:
@@ -35,14 +36,15 @@ pixel that way inside its tile, to pull it up to a table for example. The chair 
 or resized: a triangle goes dim once the picture has reached the edge of the tile. After a move
 a red `x` appears that puts the chair back where it rests. Turning the chair also puts it back.
 
-Where a chair rests depends on its facing: a chair facing north sits 6 pixels up, against the
-table behind it; one facing east or west sits 2 pixels up and 3 or 4 pixels toward its table;
-one facing south sits where the art draws it. Moves count from there.
+Where a chair rests depends on its facing: a chair facing north (seen from behind) sits 6 pixels
+up, against the table north of it; one facing east or west sits 2 pixels up and 3 or 4 pixels
+toward its table; one facing south sits where the art draws it. Moves count from there.
 
-The two chair icons in the sheet show the same chair. Facings and positions are saved with the
-fortress and come back when you load it.
+The sheet's two chair icons use the new art too: the one beside the title shows the chair as
+it is turned, the one in the item list shows it from the front. Facings and positions are saved
+with the fortress and come back when you load it.
 
-From the DFHack console or Lua:
+From Lua (in the DFHack console, type `lua` first to get a Lua prompt):
 
 ```lua
 local cf = reqscript('improved-chairs')
@@ -54,15 +56,15 @@ cf.get_room(facing, 0)              -- pixels of room toward 0 N, 1 E, 2 S, 3 W
 ```
 
 The mod is two DFHack overlay widgets. `improved-chairs.map` draws the chairs; `overlay disable
-improved-chairs.map` gives every chair the game's own picture back until you enable it again.
-`improved-chairs.sheet` is the control on the sheet; `overlay disable improved-chairs.sheet`
-hides it. Leave that one where it is: it is drawn over the sheet's title, so a moved widget no
-longer lines up with the sheet.
+improved-chairs.map` gives every chair on the map the game's own picture back until you enable
+it again. `improved-chairs.sheet` is the control on the sheet, and it also swaps the sheet's two
+icons; `overlay disable improved-chairs.sheet` hides both. Disable both widgets to switch the
+mod off without removing it. Do not move the sheet widget: it is drawn over the sheet's title,
+so a moved widget no longer lines up with the sheet.
 
 ## Installation
 
-There are two ways to install: subscribe on the Steam Workshop, or copy the files in by hand.
-Use one or the other, not both.
+Subscribe on the Steam Workshop, or copy the mod folder in by hand.
 
 ### From the Steam Workshop
 
@@ -72,8 +74,9 @@ Use one or the other, not both.
 Existing saves work. Do not add the mod to a world's mod list at world generation; it does
 nothing there.
 
-DFHack runs scripts straight from a Workshop mod, so there is no install step. The mod is three
-files, used where they are:
+DFHack runs scripts straight from a Workshop mod, so there is no install step. Besides
+`info.txt`, the preview picture, the licence and this readme, the mod is three files, used
+where they are:
 
 ```
 scripts_modinstalled/improved-chairs.lua                             the script
@@ -82,57 +85,27 @@ scripts_modinstalled/internal/improved-chairs/chair_controls.png     the control
 ```
 
 It writes no files of its own (DFHack notes the two widgets in `dfhack-config/overlay.json`),
-does not use the network, and stores each chair's facing and position in
-your save as a small DFHack note. To uninstall, unsubscribe. Also delete any copy of the mod
-left under `mods` and `data/installed_mods` in the game's data folder: the game keeps its own
-copy there.
+does not use the network, and stores each chair's facing and position in your save as a small
+DFHack note.
+
+To uninstall, unsubscribe. The game keeps its own copy of every subscribed mod, so also delete
+any `new_and_improved_chairs` folder left under `mods` and `data/installed_mods` in the game's
+data folder. On Windows that is `%APPDATA%\Bay 12 Games\Dwarf Fortress`, or the Dwarf Fortress
+folder itself on a portable install.
 
 All messages go to the DFHack console. If chairs do not change, look there for lines starting
-with `improved-chairs:`, and check that `overlay list improved-chairs` shows both widgets
+with `improved-chairs:`, and check that `overlay list chairs` shows both widgets
 enabled.
 
 ### By hand
 
-1. Download the release archive.
-2. Extract it into the Dwarf Fortress folder (the one that contains `dfhack-config`). It adds
-   three files and a licence text:
-
-   ```
-   dfhack-config/scripts/improved-chairs.lua
-   dfhack-config/scripts/internal/improved-chairs/template.lua
-   dfhack-config/scripts/internal/improved-chairs/chair_controls.png
-   ```
-
+1. Download the source archive of the latest release from the releases page.
+2. Extract it into the `mods` folder of the game's data folder (see above for where that is)
+   and name the folder `new_and_improved_chairs`, so that
+   `mods/new_and_improved_chairs/info.txt` exists.
 3. Start the game through DFHack. There is nothing to enable.
 
-To update, extract the newer archive over the old files. To uninstall, delete them.
-
-### Coming from version 1.0
-
-Version 1.0 drew the chairs with a compiled plugin that it copied into DFHack's own folder.
-Nothing uses it any more. With the game closed, delete these two files from the folder that
-contains DFHack's `hack` folder:
-
-```
-hack/plugins/improved-chairs.plug.dll
-hack/lua/plugins/improved-chairs.lua
-```
-
-If you installed 1.0 by hand from its archive, also delete these, or a Workshop install of 1.1
-loses to the old script and no chair changes:
-
-```
-hack/scripts/improved-chairs.lua
-hack/data/art/chair_slat_template.png
-hack/data/art/chair_controls.png
-```
-
-A world whose mod list includes version 1.0 keeps using the 1.0 script. The mod was never meant
-to be in a world's mod list; in such a world, keep the two plugin files or start a new world.
-
-Left in place the old plugin does nothing, but after
-a DFHack update DFHack reports at every start that it was not built for that version. Facings
-and positions saved with 1.0 are read as they are.
+To update, replace the folder. To uninstall, delete it.
 
 ## How it works
 
@@ -140,10 +113,10 @@ Every frame the game draws the map into layers of texture numbers, one cell per 
 chair's picture goes in the building layer. DFHack lets an overlay widget run after the game
 has filled those layers and before they reach the screen. The `improved-chairs.map` widget
 goes through the built chairs, and for each one in view puts the texture for its material,
-facing and position in the chair's cell. Chairs up to eight levels below, seen through open space, are in
-the game's lower layers and get the same treatment. Creatures and items are separate layers that the game
-draws over the building layer as before, so a dwarf on the chair's tile is drawn over the chair
-(verified, as is scrolling).
+facing and position in the chair's cell. Chairs up to eight levels below, seen through open
+space, are in the game's lower layers and get the same treatment. Creatures and items are
+separate layers that the game draws over the building layer as before, so a dwarf on the
+chair's tile is drawn over the chair (verified, as is scrolling).
 
 Only a cell the game has put a building picture in is changed, so a chair the game does not
 show stays unshown. A chair that is still being built is drawn as the game draws it, and so is
@@ -170,8 +143,8 @@ material gets its own chair and there is no table of colours to maintain. A nudg
 painted the same way from the template tile moved by its offset.
 
 DFHack's Lua cannot read the pixels of a PNG, so the script reads the template from
-`scripts/internal/improved-chairs/template.lua`, which `art/make_template.py` writes from the
-PNG (it needs Python with Pillow). To try a changed template in a running game, run
+`scripts_modinstalled/internal/improved-chairs/template.lua`, which `art/make_template.py`
+writes from the PNG (it needs Python with Pillow). To try a changed template in a running game, run
 `art/make_template.py`, copy `template.lua` over the installed one and run
 `improved-chairs reload`. `improved-chairs status` prints how many chair tiles have been
 painted and drawn.
@@ -184,23 +157,27 @@ lua test/run_tests.lua      # any Lua 5.3 or later; DFHack and the game are stub
 
 The tests cover the painting (tones, see-through pixels, moved tiles), the room a chair has in
 its tile, the saved data (reading, the conversion of old saves, dropping chairs that are gone)
-and which map cell a chair is drawn in. `package.sh` runs them.
+and which map cell a chair is drawn in.
 
-## Releasing
+## Layout and releasing
 
-1. In `steam/info.txt`, raise `NUMERIC_VERSION` (keep it three digits: DFHack compares it as
-   text and uses the highest copy it finds) and `DISPLAYED_VERSION`, and write a new
-   `STEAM_CHANGELOG`.
-2. `./package.sh <version>` writes `dist/improved-chairs-<version>.zip` (the hand install) and
-   the Workshop mod folder `dist/workshop/new_and_improved_chairs`. It refuses to run when
-   `template.lua` does not match the PNG.
-3. Copy `dist/workshop/new_and_improved_chairs` to the game's `mods/mod_upload/` and upload from the Mods
-   screen.
+The repository is the mod folder: `info.txt`, `preview.png` and `scripts_modinstalled/` are what
+the game and DFHack read. `art/`, `test/` and `docs/` are left out of archives made with
+`git archive` (see `.gitattributes`), so an exported copy is exactly what gets uploaded.
+
+1. Run the checks: `lua test/run_tests.lua`, `python3 art/make_template.py --check` (the Lua
+   template matches the PNG) and
+   `cmp art/controls.png scripts_modinstalled/internal/improved-chairs/chair_controls.png`.
+2. In `info.txt`, raise `NUMERIC_VERSION` (keep it three digits: DFHack compares it as text and
+   uses the highest copy it finds) and `DISPLAYED_VERSION`, and write a new `STEAM_CHANGELOG`.
+   Commit.
+3. Export the mod into the game's upload folder and upload from the Mods screen:
+   `git archive --prefix=new_and_improved_chairs/ HEAD | tar -x -C "<game data>/mods/mod_upload"`
 4. After the first upload the game adds a `STEAM_FILE_ID` line to the uploaded `info.txt`. Copy
-   that line into `steam/info.txt`; without it the next upload creates a second Workshop item.
-5. `STEAM_DESCRIPTION` replaces the Workshop page's description on every upload. The full text
-   is `steam/description.txt`; paste it on the page, then remove `STEAM_DESCRIPTION` from
-   `steam/info.txt` to keep it.
+   that line into `info.txt` here; without it the next upload creates a second Workshop item.
+5. The Workshop page's description is `steam_description.txt`; paste it on the page after
+   changing it. `info.txt` has no `STEAM_DESCRIPTION` line on purpose: with one, every upload
+   would replace the page's description with that line.
 
 ## Known limitations
 
@@ -216,13 +193,13 @@ and which map cell a chair is drawn in. `package.sh` runs them.
 - The script reads the game's map layers by the names DFHack gives them. A game update that
   changes how the map is drawn can stop the chairs from changing until the script is updated;
   the game's own chairs show in the meantime.
-- Semi-transparent pixels (the shadow under the seat) can differ from version 1.0 by one step
-  of 255 in a colour channel.
-- With a DFHack older than 53.16-r2, chairs turned or nudged in a reclaimed fortress before its
-  first save reach the save file only with the second save. Current DFHack does not have this gap.
-- Fortress mode only. In adventure mode chairs are drawn by the game; visiting your old fort as
-  an adventurer leaves the stored facings untouched but does not draw them.
+- On DFHack 53.16-r1.1 and older, chairs turned or nudged in a reclaimed fortress before its
+  first save reach the save file only with the second save: save once more before quitting.
+  DFHack 53.16-r2 and later should not have this gap (reclaiming was not tested on them).
+- Fortress mode with the graphical tiles only; the ASCII (text) mode is not supported. In
+  adventure mode chairs are drawn by the game; visiting your old fort as an adventurer leaves
+  the stored facings untouched but does not draw them.
 
-## License
+## Licence
 
-MIT.
+MIT; see [LICENSE](LICENSE).

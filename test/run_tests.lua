@@ -1,7 +1,7 @@
--- Tests for scripts/improved-chairs.lua with DFHack and the game stubbed.
+-- Tests for scripts_modinstalled/improved-chairs.lua with DFHack and the game stubbed.
 --   lua test/run_tests.lua [path to the script]
 local here = arg[0]:match('^(.*)/[^/]*$') or '.'
-local SCRIPT = arg[1] or (here .. '/../scripts/improved-chairs.lua')
+local SCRIPT = arg[1] or (here .. '/../scripts_modinstalled/improved-chairs.lua')
 
 local failures, count = 0, 0
 local function check(name, cond, detail)

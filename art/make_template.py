@@ -5,7 +5,7 @@ reads: DFHack's Lua cannot read the pixels of a PNG.
 The PNG is 4 rows (wood, stone, metal, glass) of 4 facings (N, E, S, W), 32x32 each.  The Lua
 file returns 16 strings, row by row; each is one tile as 1024 pixels of 8 hex digits, RRGGBBAA.
 
-Usage: make_template.py            write scripts/internal/improved-chairs/template.lua
+Usage: make_template.py            write scripts_modinstalled/internal/improved-chairs/template.lua
        make_template.py --check    fail if that file does not match the PNG
 """
 import pathlib
@@ -15,7 +15,7 @@ from PIL import Image
 
 HERE = pathlib.Path(__file__).resolve().parent
 SRC = HERE / "sets" / "slat_template.png"
-OUT = HERE.parent / "scripts" / "internal" / "improved-chairs" / "template.lua"
+OUT = HERE.parent / "scripts_modinstalled" / "internal" / "improved-chairs" / "template.lua"
 TILE, ROWS, FACINGS = 32, 4, 4
 
 

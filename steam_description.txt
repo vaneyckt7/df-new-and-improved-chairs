@@ -1,0 +1,62 @@
+[h1]New and Improved Chairs[/h1]
+
+Every built chair becomes a heavy dwarven slat-back chair that you can turn to face north, east, south or west, and slide a few pixels inside its tile to pull it up to a table. The chair takes its colour from the material it is made of.
+
+It is purely cosmetic. The game has no idea of chair facing, so nothing about the chair, the room or your fortress changes, and removing the mod puts every chair back as it was.
+
+[h2]How to use it[/h2]
+[list]
+[*]Click a chair. After its name in the sheet there is a small circle with an arrow: click it to turn the chair a quarter turn. Chairs start out facing south, toward you; each click goes west, north, east, south.
+[*]Next to it are four small triangles. Each click moves the chair's picture one pixel that way. A triangle goes dim when the chair has reached the edge of its tile.
+[*]A red x appears after a move and puts the chair back where it rests. Turning the chair also puts it back.
+[/list]
+Facings and positions are saved with your fortress.
+
+[h2]Requirements[/h2]
+[b]Requires DFHack (free on Steam), kept up to date. Without it this mod does nothing.[/b] Tested on:
+[list]
+[*]Dwarf Fortress 53.17 (Steam Windows build, run under Wine on macOS)
+[*]DFHack 53.17-r1
+[/list]
+The mod is a plain DFHack script. There is no compiled plugin, so it is not tied to one DFHack build. Native Windows, Linux and Proton are untested.
+
+[h2]Installing[/h2]
+[list]
+[*]Subscribe and wait for Steam to finish downloading.
+[*]Fully exit the game, then start it through DFHack and load your fortress.
+[/list]
+Existing saves work. Do not add the mod to a world's mod list at world generation; it does nothing there.
+
+[h2]Installing by hand instead[/h2]
+[olist]
+[*]Download the source archive of the latest release from [url=REPLACE_WITH_RELEASE_URL]the releases page[/url].
+[*]Extract it into the mods folder of the game's data folder and name the folder new_and_improved_chairs, so that mods/new_and_improved_chairs/info.txt exists.
+[*]Start the game through DFHack. Nothing needs enabling.
+[/olist]
+To remove a hand install, delete that folder.
+
+[h2]What the mod puts on your computer[/h2]
+Nothing but the Workshop download and the copy the game itself makes of every subscribed mod. DFHack runs scripts straight from a Workshop mod, so there is no install step. Besides info.txt, the preview picture, the licence and a readme, the mod is three files, used where they are:
+[code]scripts_modinstalled/improved-chairs.lua
+scripts_modinstalled/internal/improved-chairs/template.lua
+scripts_modinstalled/internal/improved-chairs/chair_controls.png[/code]
+The first is the script, the second the chair art, the third the control symbols. The mod writes no files of its own (DFHack notes its two widgets in dfhack-config/overlay.json) and does not use the network. It stores each chair's facing and position in your save as a small DFHack note.
+
+All messages go to the DFHack console. If chairs do not change, look there for lines starting with improved-chairs: and check that both widgets are enabled with this command:
+[code]overlay list chairs[/code]
+
+[h2]Removing it[/h2]
+Unsubscribe. The game keeps its own copy of every subscribed mod, so also delete any new_and_improved_chairs folder left under mods and data/installed_mods in the game's data folder (on Windows %APPDATA%\Bay 12 Games\Dwarf Fortress, or the Dwarf Fortress folder itself on a portable install). Every chair then looks as it did before.
+
+To switch the mod off without removing it, run these two commands in the DFHack console:
+[code]overlay disable improved-chairs.map
+overlay disable improved-chairs.sheet[/code]
+
+[h2]Good to know[/h2]
+[list]
+[*]Fortress mode with the graphical tiles only.
+[*]Only built chairs change. Chairs in stockpiles or being hauled keep the game's picture.
+[*]Moving a chair moves only its picture. A dwarf using it is still drawn in the middle of the tile.
+[/list]
+
+Source and issues: [url=REPLACE_WITH_REPO_URL]GitHub[/url]
