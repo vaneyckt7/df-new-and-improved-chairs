@@ -1,8 +1,8 @@
 # New and Improved Chairs
 
-A DFHack script for Dwarf Fortress that replaces the picture of every built chair with a heavy
-dwarven slat-back chair, and lets you turn it to face north, east, south or west. All of it is
-purely cosmetic: the game has no notion of chair facing, so nothing about the chair or the room
+A DFHack script for Dwarf Fortress that replaces the picture of chairs, built or lying in a
+stockpile, with a heavy dwarven slat-back chair, and lets you turn a built one to face north,
+east, south or west. All of it is purely cosmetic: the game has no notion of chair facing, so nothing about the chair or the room
 changes; the save only gains a small DFHack note of each turned or moved chair. Remove the mod
 and every chair looks exactly as it did before.
 
@@ -98,15 +98,36 @@ enabled.
 Every frame the game draws the map into layers of texture numbers, one cell per map tile; a
 chair's picture goes in the building layer. DFHack lets an overlay widget run after the game
 has filled those layers and before they reach the screen. The `improved-chairs.map` widget
-goes through the built chairs, and for each one in view puts the texture for its material,
-facing and position in the chair's cell. Chairs up to eight levels below, seen through open
+puts, for each built chair in view, the texture for its material, facing and position in the
+chair's cell. It does not ask the game about every chair every frame: it keeps a list of where
+the chairs stand (made again when a chair is built, finished or removed, and every 600 frames
+regardless) and a list of the cells in view (made again when the camera or zoom changes, when a
+chair is turned or nudged, and every 30 frames regardless), so a frame costs one lookup and one
+write per chair in view. Measured in a fortress with 348 chairs, 48 of them in view: 0.65 ms a
+frame before 1.1, about 0.05 ms now. Chairs up to eight levels below, seen through open
 space, are in the game's lower layers and get the same treatment. Creatures and items are
 separate layers that the game draws over the building layer as before, so a dwarf on the
 chair's tile is drawn over the chair (verified, as is scrolling).
 
 Only a cell the game has put a building picture in is changed, so a chair the game does not
-show stays unshown. A chair that is still being built is drawn as the game draws it, and so is
-a chair that is an item (in a stockpile, or being hauled).
+show stays unshown. A chair that is still being built is drawn as the game draws it. A chair a
+dwarf has started to take apart goes back to the game's picture within 30 frames.
+
+A chair that is an item lying on the ground (in a stockpile, or wherever it was dropped) is in
+the game's item layer, and since 1.1 it gets the same art there, facing south, in the colour of
+its material. The game shows one item per tile: of the items lying there that are not hidden,
+the one made last (not the one dropped last). The chair is drawn only when it is that item, so
+a chair under a newer barrel stays a barrel. The cell is changed only while
+it holds what the game drew for that chair, so when the chair is picked up or something lands on
+it the game's picture shows in the same frame (in the rare case that one item leaves and
+another arrives in the same 16x16 block of the map just as the camera moves, the chair's picture
+can stay over the other item for up to 30 frames); a chair that was just dropped can show the
+game's picture for up to 30 frames (half a second at 60 FPS) first. The game does not draw a chair that a dwarf is
+carrying at all, so there is nothing to replace there. Two bounds keep this cheap in a large
+fortress: with more than 240 chair items the chairs on the ground are looked up every (number of
+chair items / 8) frames instead of every 30, so a dropped chair takes that much longer to change;
+and a 16x16 block of the map holding more than 1024 items (a quantum stockpile, say) is not gone
+through at all, so chairs lying in that block keep the game's picture.
 
 Facings and nudges are stored per fortress in DFHack site data (`improved-chairs`), keyed by
 building id. They are restored on map load, and entries for chairs that no longer exist are
@@ -176,7 +197,8 @@ the game and DFHack read. `art/`, `test/` and `docs/` are left out of archives m
   How far it can go from its resting position depends on the view: up to 13 pixels sideways for
   a chair seen from the side, 1 pixel up or down for a chair facing south, which nearly fills
   the height of the tile, and not up at all for a chair facing east or west.
-- The script reads the game's map layers by the names DFHack gives them. A game update that
+- The script reads the game's map layers, its lists of chairs and its next-building counter
+  (`building_next_id`) by the names DFHack gives them. A game update that
   changes how the map is drawn can stop the chairs from changing until the script is updated;
   the game's own chairs show in the meantime.
 - On DFHack 53.16-r1.1 and older, chairs turned or nudged in a reclaimed fortress before its

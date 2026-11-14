@@ -22,16 +22,20 @@ end
 local function zeros(n) local t = {}; for i = 0, n - 1 do t[i] = 0 end; return t end
 -- a 0-based vector with a length, like the game's
 local function vec(list) local t = {}; for i, v in ipairs(list) do t[i - 1] = v end; return setmetatable(t, {__len=function() return #list end}) end
-local function viewport(dim_x, dim_y) return {dim_x=dim_x, dim_y=dim_y, screentexpos_building_one=zeros(dim_x * dim_y)} end
+local function viewport(dim_x, dim_y) return {dim_x=dim_x, dim_y=dim_y, screentexpos_building_one=zeros(dim_x * dim_y), screentexpos_item=zeros(dim_x * dim_y)} end
 
 -- the game's default palette: shade i of ramp 0 is grey 10*i, of ramp 1 grey 100+10*i
 local palette = {}
 for ramp = 0, 1 do for i = 0, 8 do for c = 0, 2 do palette[ramp * 27 + i * 3 + c] = ramp * 100 + i * 10 + c end end end
 
 local function new_world()
-    local w = {site={}, buildings={}, chairs={}, saves=0, map_loaded=true, fortress=true, next_handle=0}
-    w.gps = {main_viewport=viewport(25, 17), lower_viewport={}, default_palette={color=palette}}
-    for i = 0, 7 do w.gps.lower_viewport[i] = viewport(25, 17) end
+    local w = {site={}, buildings={}, chairs={}, items={}, ground={}, saves=0, map_loaded=true, fortress=true, next_handle=0}
+    -- (the game has eight lower layers; asking for another is an error, as in DFHack)
+    local lower = {}
+    for i = 0, 7 do lower[i] = viewport(25, 17) end
+    w.gps = {main_viewport=viewport(25, 17), default_palette={color=palette},
+        lower_viewport=setmetatable({}, {__index=function(_, i) if math.type(i) ~= 'integer' or i < 0 or i > 7 then error('index out of bounds') end; return lower[i] end,
+            __newindex=function(_, i, v) lower[i] = v end})}
     return w
 end
 local W
@@ -50,8 +54,25 @@ local function chair(id, x, y, z, opts)
     if opts.broken then setmetatable(b.contained_items, {__len=function() error('broken chair') end}) end
     W.buildings[id] = b
     W.chairs[#W.chairs + 1] = b
+    W.building_next_id = (W.building_next_id or 0) + 1      -- as the game does for every new building
     return b
 end
+
+-- An item: a chair unless opts.other, lying on the ground at x, y, z unless opts.carried.  The
+-- game keeps a tile's items in the order of their ids; W.ground is that list for the whole map.
+local function item(id, x, y, z, opts)
+    opts = opts or {}
+    local it = {id=id, pos={x=x, y=y, z=z}, flags={on_ground=not opts.carried, removed=false}}
+    local mat = opts.mat or {0, 0}
+    function it:getMaterial() if opts.broken then error('broken item') end; return mat[1] end
+    function it:getMaterialIndex() return mat[2] end
+    W.all_items = W.all_items or {}
+    W.all_items[id] = it
+    if not opts.other then W.items[#W.items + 1] = it end
+    if not opts.carried then W.ground[#W.ground + 1] = id; table.sort(W.ground) end
+    return it
+end
+local function vector_of(list) return setmetatable({}, {__index=function(_, i) return list()[i + 1] end, __len=function() return #list() end}) end
 
 local function load_script()
     local function copy(v) if type(v) ~= 'table' then return v end; local t = {}; for k, x in pairs(v) do t[k] = copy(x) end; return t end
@@ -67,6 +88,15 @@ local function load_script()
         findScript=function() return SCRIPT end,
         isMapLoaded=function() return W.map_loaded end,
         world={isFortressMode=function() return W.fortress end},
+        maps={getTileBlock=function(x, y, z)
+            W.block_reads = (W.block_reads or 0) + 1
+            local ids = {}
+            for _, id in ipairs(W.ground) do
+                local p = W.all_items[id].pos
+                if p.z == z and p.x >> 4 == x >> 4 and p.y >> 4 == y >> 4 then ids[#ids + 1] = id end
+            end
+            return {items=vector_of(function() return ids end)}
+        end},
         matinfo={decode=function(t, i) return W.materials and W.materials[t .. ':' .. i] or nil end},
         persistent={
             getSiteData=function(key, default)
@@ -83,12 +113,13 @@ local function load_script()
         },
         textures=setmetatable({
             createTile=function(px) W.next_handle = W.next_handle + 1; W.last_pixels = px; return W.next_handle end,
-            getTexposByHandle=function(h) return 1000 + h end,
+            getTexposByHandle=function(h) if W.texpos_of then return W.texpos_of(h) end; return 1000 + h end,
         }, {__index=function() return anything() end}),
     }
     setmetatable(env.dfhack, {__index=function() return anything() end})
     env.df = {
         building_chairst=CHAIR_TYPE,
+        item={find=function(id) W.item_finds = (W.item_finds or 0) + 1; return W.all_items and W.all_items[id] end},
         building={find=function(id)   -- like the game: integers only, and only 32 bits of them
             if math.type(id) ~= 'integer' then error('integer expected') end
             if W.buildings[id] and W.buildings[id].find_fails then error('find failed') end
@@ -96,7 +127,7 @@ local function load_script()
         end},
         global=setmetatable({}, {__index=function(_, k)
             if k == 'gps' then return W.gps end
-            if k == 'world' then return {buildings={other={CHAIR=W.chairs}}, raws={descriptors=W.descriptors or {colors={}, patterns={}}}} end
+            if k == 'world' then return {items={other={CHAIR=vector_of(function() return W.items end)}}, buildings={other={CHAIR=setmetatable({}, {__index=function(_, i) if i < 0 or i >= #W.chairs then error('index out of bounds') end; return W.chairs[i + 1] end, __len=function() return #W.chairs end})}}, raws={descriptors=W.descriptors or {colors={}, patterns={}}}} end
             return W[k]
         end}),
     }
@@ -311,6 +342,488 @@ do
     check('the error is reported', not ok and tostring(err):find('broken chair'), err)
     eq('the broken chair keeps the game\'s picture', W.gps.main_viewport.screentexpos_building_one[1 * 17 + 1], 7)
     check('the chair after it is drawn', W.gps.main_viewport.screentexpos_building_one[2 * 17 + 1] > 1000)
+end
+
+-- ---- what the map overlay remembers ------------------------------------------------------------
+do
+    local main, cells
+    local function start()
+        W = new_world(); W.window_x, W.window_y, W.window_z = 100, 50, 10
+        main = W.gps.main_viewport; cells = main.screentexpos_building_one
+    end
+    local function cell(x, y) return (x - W.window_x) * 17 + (y - W.window_y) end
+    -- one frame: the game fills its layers again (a picture for every chair in `shown`), then the mod draws
+    local shown
+    local function frame()
+        for i = 0, 25 * 17 - 1 do cells[i] = 0 end
+        for _, b in ipairs(shown) do
+            local sx, sy = b.centerx - W.window_x, b.centery - W.window_y
+            if b.z == W.window_z and sx >= 0 and sx < 25 and sy >= 0 and sy < 17 then cells[sx * 17 + sy] = 7 end
+        end
+        I.draw_chairs()
+    end
+    local function at(x, y) return cells[cell(x, y)] end
+
+    start()
+    local a, b2 = chair(1, 103, 52, 10), chair(2, 105, 52, 10)
+    shown = {a, b2}
+    m = load_script(); I = m.internal
+    for _ = 1, 100 do frame() end
+    eq('a hundred frames standing still: one index', m.STATS.indexes, 1)
+    check('and a view only every so often', m.STATS.views <= 5, m.STATS.views)
+    check('both chairs drawn in the last frame', at(103, 52) > 1000 and at(105, 52) > 1000)
+    eq('alike chairs share a tile', at(103, 52), at(105, 52))
+
+    local before = at(103, 52)
+    m.set_facing(1, Wd); frame()
+    check('a turned chair shows turned in the next frame', at(103, 52) > 1000 and at(103, 52) ~= before, at(103, 52))
+    eq('the other chair is as it was', at(105, 52), before)
+    local turned = at(103, 52)
+    m.set_nudge(1, 1, 0); frame()
+    check('a nudged chair shows nudged in the next frame', at(103, 52) ~= turned and at(103, 52) ~= before)
+    m.set_facing(1, S); frame()
+    eq('turned back: the first tile again', at(103, 52), before)
+
+    W.window_x = 101; frame()
+    check('after a camera move the chairs are at their new cells', at(103, 52) > 1000 and at(105, 52) > 1000)
+    local written = 0
+    for i = 0, 25 * 17 - 1 do if cells[i] > 1000 then written = written + 1 end end
+    eq('and nowhere else', written, 2)
+    W.window_z = 11; frame()
+    written = 0
+    for i = 0, 25 * 17 - 1 do if cells[i] ~= 0 then written = written + 1 end end
+    eq('another level: nothing of the old one is written', written, 0)
+    W.window_z = 10; W.window_x = 100; frame()
+
+    -- a chair the game stops showing, and shows again
+    shown = {b2}; frame()
+    eq('a chair the game does not show is not drawn', at(103, 52), 0)
+    shown = {a, b2}; frame()
+    check('shown again: drawn again in that frame', at(103, 52) > 1000)
+
+    -- building
+    local opts = {unfinished=true}
+    local c = chair(3, 107, 52, 10, opts); shown = {a, b2, c}
+    frame()
+    eq('a chair being built keeps the game\'s picture', at(107, 52), 7)
+    for _ = 1, 5 do frame() end
+    opts.unfinished = false; frame()
+    check('finished: drawn in the next frame', at(107, 52) > 1000)
+
+    -- a chair a dwarf starts to take apart is left to the game within VIEW_FRAMES frames
+    opts.unfinished = true
+    for _ = 1, 31 do frame() end
+    eq('a chair being taken apart goes back to the game\'s picture', at(107, 52), 7)
+    opts.unfinished = false
+    for _ = 1, 31 do frame() end
+    check('removal called off: drawn again', at(107, 52) > 1000)
+
+    -- removal: the chair leaves the game's list
+    table.remove(W.chairs, 1); W.buildings[1] = nil; shown = {b2, c}
+    frame()
+    eq('a removed chair leaves nothing behind', at(103, 52), 0)
+    check('the others are still drawn', at(105, 52) > 1000 and at(107, 52) > 1000)
+    -- one removed and one built in the same frame: the list is as long as before
+    table.remove(W.chairs, 1); W.buildings[2] = nil
+    local d = chair(4, 110, 55, 10); shown = {c, d}
+    frame()
+    eq('removed and built in one frame: the old cell is empty', at(105, 52), 0)
+    check('and the new chair is drawn', at(110, 55) > 1000 and at(107, 52) > 1000)
+
+    -- the camera moves north-south or changes level while the game shows something at the old cells
+    local function fill() for i = 0, 25 * 17 - 1 do cells[i] = 7 end end
+    local function count_drawn() local n = 0; for i = 0, 25 * 17 - 1 do if cells[i] > 1000 then n = n + 1 end end; return n end
+    W.window_y = 51; fill(); I.draw_chairs()
+    check('a move north-south: the chairs are at their new cells', count_drawn() == 2 and at(107, 52) > 1000 and at(110, 55) > 1000, count_drawn())
+    W.window_z = 11; fill(); I.draw_chairs()
+    eq('a level up: its lower layer gets the chairs, the main one none', count_drawn(), 0)
+    W.window_z = 10; W.window_y = 50; frame()
+
+    -- saved facings read again (a map load): the view follows
+    local was = at(107, 52)
+    m.set_facing(3, E); frame()
+    check('turned', at(107, 52) ~= was)
+    W.site['improved-chairs'] = nil; m.restore(); frame()
+    eq('facings read again from the save show in the next frame', at(107, 52), was)
+
+    -- the game's list in another order with nothing else changed: no chair gets another's tile
+    m.set_facing(3, E); frame()
+    local turned3, plain4 = at(107, 52), at(110, 55)
+    W.chairs[1], W.chairs[2] = W.chairs[2], W.chairs[1]
+    m.set_nudge(4, 0, 0)        -- (anything that makes the view be worked out again)
+    check('a reordered list raises nothing', pcall(frame))
+    frame(); frame()
+    check('and each chair keeps its own tile', at(107, 52) == turned3 and at(110, 55) == plain4)
+
+    -- the chairs are looked up again every REINDEX_FRAMES frames, whatever happens
+    local indexes = m.STATS.indexes
+    for _ = 1, 1300 do frame() end
+    eq('looked up again every 600 frames', m.STATS.indexes - indexes, 2)
+
+    -- the world goes: nothing remembered may be written into the next one, even if it has as
+    -- many chairs and the same next building id
+    local count, next_id = #W.chairs, W.building_next_id
+    m.dfhack.onStateChange[next(m.dfhack.onStateChange)](2)
+    start(); shown = {chair(1, 120, 60, 10), chair(2, 121, 60, 10)}
+    eq('(as many chairs as before)', #W.chairs, count)
+    W.building_next_id = next_id
+    fill(); I.draw_chairs()
+    check('a new world: only its own chairs are drawn', count_drawn() == 2 and at(120, 60) > 1000 and at(121, 60) > 1000, count_drawn())
+
+    -- a layer that changes size under a view
+    start(); shown = {chair(1, 103, 52, 10)}
+    m = load_script(); I = m.internal
+    frame()
+    W.gps.main_viewport = viewport(30, 12); main = W.gps.main_viewport; cells = main.screentexpos_building_one
+    cells[3 * 12 + 2] = 7
+    I.draw_chairs()
+    check('a resized layer is indexed by its new size', cells[3 * 12 + 2] > 1000)
+    for i in pairs(cells) do if i < 0 or i >= 30 * 12 then check('no write outside the resized layer', false, i) end end
+
+    -- a lower layer that is not there when the view is made, and then is
+    start()
+    local kept = W.gps.lower_viewport[0]
+    W.gps.lower_viewport[0] = nil
+    chair(1, 103, 52, 9)
+    m = load_script(); I = m.internal
+    I.draw_chairs()
+    W.gps.lower_viewport[0] = kept
+    kept.screentexpos_building_one[cell(103, 52)] = 7
+    I.draw_chairs()
+    check('a lower layer that comes back is drawn in that frame', kept.screentexpos_building_one[cell(103, 52)] > 1000)
+
+    -- the last chair goes and nothing is built: the list is shorter, and is not read past its end
+    start(); local r1, r2 = chair(1, 103, 52, 10), chair(2, 105, 52, 10); shown = {r1, r2}
+    m = load_script(); I = m.internal
+    frame()
+    table.remove(W.chairs, 2); W.buildings[2] = nil; shown = {r1}
+    check('the last chair removed: no error', pcall(frame))
+    local ok_later = true
+    for _ = 1, 40 do ok_later = pcall(frame) and ok_later end
+    check('nor in the frames after', ok_later)
+    eq('and nothing left behind', at(105, 52), 0)
+    check('the other is drawn', at(103, 52) > 1000)
+
+    -- a chair nine levels down is out of reach of the eight lower layers
+    start(); chair(1, 103, 52, 1); shown = {chair(2, 105, 52, 10)}
+    m = load_script(); I = m.internal
+    check('a chair nine levels down: no error', pcall(frame))
+    check('and the chair in view is drawn', at(105, 52) > 1000)
+
+    -- a layer that changes one of its sizes only
+    for _, size in ipairs{{25, 12}, {30, 17}} do
+        start(); shown = {chair(1, 103, 52, 10)}
+        chair(2, 127, 52, 10)       -- (in view only once the layer is 30 wide)
+        m = load_script(); I = m.internal
+        frame()
+        W.gps.main_viewport = viewport(size[1], size[2]); main = W.gps.main_viewport; cells = main.screentexpos_building_one
+        for i = 0, size[1] * size[2] - 1 do cells[i] = 7 end
+        I.draw_chairs()
+        local n, where = 0
+        for i, t in pairs(cells) do
+            if i < 0 or i >= size[1] * size[2] then check('no write outside the layer', false, i) end
+            if t > 1000 then n = n + 1 end
+        end
+        check(('a layer resized to %dx%d: the chair at its new cell'):format(size[1], size[2]), cells[3 * size[2] + 2] > 1000)
+        eq('and every chair now in view is drawn', n, size[1] > 27 and 2 or 1)
+    end
+
+    -- the game gives a tile's texture another number, or takes it away
+    start(); shown = {chair(1, 103, 52, 10)}
+    m = load_script(); I = m.internal
+    frame()
+    local first = at(103, 52)
+    W.texpos_of = function(h) return 5000 + h end
+    frame()
+    eq('a texture renumbered by the game: the new number in the next frame', at(103, 52), first + 4000)
+    W.texpos_of = function() return 0 end
+    frame()
+    eq('a texture without a number leaves the game\'s picture', at(103, 52), 7)
+    W.texpos_of = function() return -1 end
+    frame()
+    eq('so does a negative one', at(103, 52), 7)
+    W.texpos_of = nil
+    frame()
+    eq('and back', at(103, 52), first)
+
+    -- the list was reordered under the index
+    start()
+    local bad_opts = {mat={0, 1}}
+    local good, bad = chair(1, 103, 52, 10), chair(2, 105, 52, 10, bad_opts); shown = {good, bad}
+    m = load_script(); I = m.internal
+    frame()
+    -- (its id answers to another building: the id guard asks for the chairs to be looked up again)
+    bad.id = 99; W.buildings[99] = bad
+    m.set_facing(1, Wd)         -- (makes the view be worked out again)
+    frame()
+    eq('a chair whose id changed is not drawn from the old entry', at(105, 52), 7)
+    frame()
+    check('and is drawn once the chairs were looked up again', at(105, 52) > 1000, at(105, 52))
+
+    -- a texture that is refused is asked for again
+    start(); shown = {chair(1, 103, 52, 10)}
+    m = load_script(); I = m.internal
+    local create = m.dfhack.textures.createTile
+    m.dfhack.textures.createTile = function() return 0 end
+    frame()
+    eq('a refused texture leaves the game\'s picture', at(103, 52), 7)
+    m.dfhack.textures.createTile = create
+    frame()
+    check('and is had in the next frame', at(103, 52) > 1000)
+end
+
+-- ---- chairs lying on the ground ------------------------------------------------------------------
+do
+    local main, cells, icells
+    local function start()
+        W = new_world(); W.window_x, W.window_y, W.window_z = 100, 50, 10
+        main = W.gps.main_viewport; cells, icells = main.screentexpos_building_one, main.screentexpos_item
+    end
+    local function cell(x, y) return (x - W.window_x) * 17 + (y - W.window_y) end
+    -- one frame: the game puts 500 + id of the last item of each tile in the item layer, then the mod draws
+    local function game(vp, z)
+        local layer = vp.screentexpos_item
+        for i = 0, vp.dim_x * vp.dim_y - 1 do layer[i] = 0 end
+        for _, id in ipairs(W.ground) do
+            local p = W.all_items[id].pos
+            local sx, sy = p.x - W.window_x, p.y - W.window_y
+            -- (the game does not draw a hidden item: seen in the game)
+            if not W.all_items[id].flags.hidden and p.z == z and sx >= 0 and sx < vp.dim_x and sy >= 0 and sy < vp.dim_y then layer[sx * vp.dim_y + sy] = 500 + id end
+        end
+    end
+    local function frame()
+        game(main, W.window_z)
+        for d = 0, 7 do if W.gps.lower_viewport[d] then game(W.gps.lower_viewport[d], W.window_z - d - 1) end end
+        I.draw_chairs()
+    end
+    local function at(x, y) return icells[cell(x, y)] end
+    local function pick_up(it) it.flags.on_ground = false; for i, id in ipairs(W.ground) do if id == it.id then table.remove(W.ground, i) end end end
+    local function put_down(it, x, y, z) it.flags.on_ground = true; it.pos = {x=x, y=y, z=z}; W.ground[#W.ground + 1] = it.id; table.sort(W.ground) end
+
+    start()
+    local a = item(1, 103, 52, 10)
+    item(2, 104, 52, 10); item(3, 104, 52, 10, {other=true})        -- a barrel on a chair
+    item(4, 105, 52, 10, {other=true}); item(5, 105, 52, 10)        -- a chair on a barrel
+    item(6, 106, 52, 10, {other=true})                              -- a barrel alone
+    local carried = item(7, 107, 52, 10, {carried=true})
+    item(8, 108, 52, 9); item(9, 109, 52, 2); item(10, 110, 52, 1); item(11, 111, 52, 11)
+    item(12, 99, 52, 10); item(13, 125, 52, 10); item(14, 103, 49, 10); item(15, 103, 67, 10)
+    item(16, 100, 50, 10); item(17, 124, 66, 10)
+    -- the same tile of another level and of another block must not be taken for this one
+    item(18, 103, 52, 9, {other=true}); item(19, 119, 52, 10, {other=true})
+    m = load_script(); I = m.internal
+    frame()
+    check('a chair on the ground is drawn', at(103, 52) > 1000, at(103, 52))
+    eq('a chair under another item is not', at(104, 52), 503)
+    check('a chair on top of another item is', at(105, 52) > 1000)
+    eq('another item is left alone', at(106, 52), 506)
+    eq('a carried chair draws nothing', at(107, 52), 0)
+    check('one level down: the lower layer', W.gps.lower_viewport[0].screentexpos_item[cell(108, 52)] > 1000)
+    eq('and not the main one', at(108, 52), 0)
+    check('eight levels down', W.gps.lower_viewport[7].screentexpos_item[cell(109, 52)] > 1000)
+    check('corner cells', at(100, 50) > 1000 and at(124, 66) > 1000)
+    local written = 0
+    for _, vp in ipairs{main, W.gps.lower_viewport[0], W.gps.lower_viewport[1], W.gps.lower_viewport[7]} do
+        for i, v in pairs(vp.screentexpos_item) do
+            if v > 1000 then written = written + 1 end
+            if i < 0 or i >= 25 * 17 then check('no write outside the item layer', false, i) end
+        end
+    end
+    eq('exactly the six drawable chairs were written', written, 6)
+    for i = 0, 25 * 17 - 1 do if cells[i] ~= 0 then check('the building layer is not touched', false, i) end end
+    eq('chairs on the ground are counted', m.STATS.items, 6)
+
+    -- it looks like a built chair nobody turned
+    local b = chair(1, 112, 52, 10); cells[cell(112, 52)] = 7
+    frame()
+    eq('the same tile as an unturned built chair of that material', at(103, 52), cells[cell(112, 52)])
+
+    -- picked up: what the game shows there now is left alone at once
+    pick_up(a); item(20, 103, 52, 10, {other=true})
+    frame()
+    eq('a chair that was picked up: the item under it shows in the next frame', at(103, 52), 520)
+    -- put down elsewhere: drawn within ITEM_FRAMES frames
+    put_down(a, 113, 52, 10)
+    frame()
+    eq('(the game\'s picture at first)', at(113, 52), 501)
+    for _ = 1, 31 do frame() end
+    check('a chair put down is drawn within 30 frames', at(113, 52) > 1000, at(113, 52))
+    -- something dropped on top of it
+    item(21, 113, 52, 10, {other=true})
+    frame()
+    eq('an item dropped on a chair shows in the next frame', at(113, 52), 521)
+    for _ = 1, 31 do frame() end
+    eq('and keeps showing', at(113, 52), 521)
+
+    -- a chair the game does not show (its tile is hidden): nothing is written there
+    game(main, W.window_z); icells[cell(105, 52)] = 0
+    m.set_facing(1, Wd)         -- (anything that makes the view be worked out again)
+    I.draw_chairs()
+    eq('a chair on the ground the game does not show stays unshown', at(105, 52), 0)
+    for _ = 1, 3 do I.draw_chairs() end
+    eq('in the frames after as well', at(105, 52), 0)
+
+    -- an item the game has marked as removed is not drawn over
+    local gone = item(23, 116, 52, 10); gone.flags.removed = true
+    frame()
+    eq('a removed chair item is left alone', at(116, 52), 523)
+
+    -- a new chair item: the game's list grew, so it is drawn at once
+    item(22, 115, 52, 10)
+    frame()
+    check('a chair that was just made is drawn in the next frame', at(115, 52) > 1000, at(115, 52))
+
+    -- the game gives a chair on the ground another texture number: drawn again within a few frames
+    do
+        local function frame2()
+            game(main, W.window_z); icells[cell(115, 52)] = 9000
+            I.draw_chairs()
+        end
+        for _ = 1, 7 do frame2() end
+        check('the game renumbers a chair\'s picture: drawn again within 7 frames', at(115, 52) > 1000 and at(115, 52) ~= 9000, at(115, 52))
+        for _ = 1, 40 do frame() end
+        check('and again when it goes back', at(115, 52) > 1000 and at(115, 52) ~= 522, at(115, 52))
+    end
+
+    -- the camera moves: at once at the new cells
+    W.window_x = 101; frame()
+    check('after a camera move the chairs are at their new cells', at(105, 52) > 1000 and at(104, 52) == 503 and at(106, 52) == 506)
+
+    -- a tile's block is read once per look-up of the chairs, not once per frame
+    W.window_x = 100; frame()
+    local reads = W.block_reads
+    for _ = 1, 20 do frame() end
+    check('blocks are not read every frame', W.block_reads - reads <= 8, W.block_reads - reads)
+    local finds = W.item_finds
+    for _ = 1, 20 do frame() end
+    check('and their items not looked at again while nothing came or went', W.item_finds - finds <= #W.ground, W.item_finds - finds)
+
+    -- hidden items (the game draws the last item of a tile that is not hidden)
+    start()
+    item(1, 103, 52, 10, {other=true}); local h1 = item(2, 103, 52, 10)      -- a hidden chair on a barrel
+    local h2 = item(3, 105, 52, 10)                                           -- a hidden chair alone
+    local h3 = item(4, 107, 52, 10, {other=true}); item(5, 107, 52, 10); local h4 = item(6, 107, 52, 10)
+    h1.flags.hidden, h2.flags.hidden, h3.flags.hidden, h4.flags.hidden = true, true, true, true
+    m = load_script(); I = m.internal
+    for _ = 1, 40 do frame() end
+    eq('a hidden chair on a barrel: the barrel shows', at(103, 52), 501)
+    eq('a hidden chair alone: nothing', at(105, 52), 0)
+    check('a chair under a hidden item is drawn', at(107, 52) > 1000, at(107, 52))
+    h1.flags.hidden = false
+    for _ = 1, 40 do frame() end
+    check('no longer hidden: drawn', at(103, 52) > 1000, at(103, 52))
+
+    -- the view is worked out between an item coming or going and the next look-up of the chairs
+    for _, how in ipairs{'camera', 'turn'} do
+        start()
+        item(1, 103, 52, 10, {other=true}); local top = item(2, 103, 52, 10)     -- a chair on a barrel
+        item(3, 105, 52, 10)                                                      -- a chair alone
+        chair(1, 110, 52, 10)
+        m = load_script(); I = m.internal
+        for _ = 1, 3 do frame() end
+        check('(drawn at first)', at(103, 52) > 1000 and at(105, 52) > 1000)
+        pick_up(top); item(4, 105, 52, 10, {other=true})                          -- and a barrel lands on the other
+        if how == 'camera' then W.window_y = 49 else m.set_facing(1, Wd) end
+        local wrong = 0
+        for _ = 1, 40 do
+            frame()
+            if at(103, 52) ~= 501 or at(105, 52) ~= 504 then wrong = wrong + 1 end
+        end
+        eq('a chair picked up, a barrel dropped on another, then the ' .. how .. ': no frame with a chair over a barrel', wrong, 0)
+    end
+
+    -- the same when the chair picked up is not the newest item of its part of the map
+    start()
+    item(1, 103, 52, 10, {other=true}); local mid = item(2, 103, 52, 10); item(9, 110, 60, 10, {other=true})
+    m = load_script(); I = m.internal
+    for _ = 1, 3 do frame() end
+    pick_up(mid); W.window_y = 49
+    local wrong_mid = 0
+    for _ = 1, 40 do frame(); if at(103, 52) ~= 501 then wrong_mid = wrong_mid + 1 end end
+    eq('an older chair picked up, then the camera: no frame with a chair over the barrel', wrong_mid, 0)
+
+    -- blocks that differ in one coordinate only are not mixed up
+    start()
+    item(1, 103, 52, 10); item(2, 103, 52 + 16, 10, {other=true}); item(3, 103 + 16, 52, 10, {other=true})
+    item(4, 103, 60, 10, {other=true}); item(5, 103, 60 + 16, 10); item(6, 103 + 16, 60, 10)
+    W.gps.main_viewport = viewport(25, 40); main = W.gps.main_viewport; icells = main.screentexpos_item
+    local function at40(x, y) return icells[(x - 100) * 40 + (y - 50)] end
+    m = load_script(); I = m.internal
+    frame()
+    check('chairs in three neighbouring blocks: each judged by its own block',
+        at40(103, 52) > 1000 and at40(103, 76) > 1000 and at40(119, 60) > 1000 and at40(103, 68) == 502 and at40(119, 52) == 503 and at40(103, 60) == 504)
+
+    -- a chair put down with nothing else going on: drawn within 30 frames
+    start(); local loose = item(1, 103, 52, 10, {carried=true}); item(2, 120, 60, 10)
+    m = load_script(); I = m.internal
+    for _ = 1, 3 do frame() end
+    put_down(loose, 103, 52, 10)
+    local waited = 0
+    repeat frame(); waited = waited + 1 until at(103, 52) > 1000 or waited > 100
+    check('a chair put down is drawn within 30 frames', waited <= 31, waited)
+
+    -- very many chair items: they are looked up less often
+    start(); loose = item(1, 103, 52, 10, {carried=true})
+    for id = 2, 801 do item(id, 0, 0, 0, {carried=true}) end
+    m = load_script(); I = m.internal
+    for _ = 1, 3 do frame() end
+    put_down(loose, 103, 52, 10)
+    waited = 0
+    repeat frame(); waited = waited + 1 until at(103, 52) > 1000 or waited > 300
+    check('among 800 chair items a chair put down is drawn within 100 frames, not 30', waited > 31 and waited <= 101, waited)
+
+    -- a block with more items than are worth reading: its chairs keep the game's picture
+    start(); item(1, 103, 52, 10)
+    for id = 2, 1030 do item(id, 110, 60, 10, {other=true}) end
+    item(1031, 120, 52, 10)                         -- (in the next block)
+    m = load_script(); I = m.internal
+    W.item_finds = 0
+    for _ = 1, 40 do frame() end
+    eq('a chair in a block of more than 1024 items keeps the game\'s picture', at(103, 52), 501)
+    check('a chair in the block beside it is drawn', at(120, 52) > 1000)
+    check('and the big block\'s items are not gone through', W.item_finds < 100, W.item_finds)
+
+    -- no built chair at all: the chairs on the ground are still drawn
+    start(); item(1, 103, 52, 10)
+    m = load_script(); I = m.internal
+    frame()
+    check('no built chair: a chair on the ground is drawn', at(103, 52) > 1000)
+
+    -- materials
+    start()
+    W.materials = {['420:5']={material={flags={WOOD=true}, state_color={Solid=-1}}}}
+    item(1, 103, 52, 10, {mat={420, 5}}); item(2, 104, 52, 10, {mat={0, 7}})
+    m = load_script(); I = m.internal
+    frame()
+    check('wood and stone chairs on the ground get different tiles', at(103, 52) > 1000 and at(104, 52) > 1000 and at(103, 52) ~= at(104, 52))
+
+    -- a chair item that cannot be read: reported, the built chairs are drawn all the same
+    start()
+    item(1, 103, 52, 10, {broken=true}); chair(1, 105, 52, 10); cells[cell(105, 52)] = 7
+    m = load_script(); I = m.internal
+    local ok, err = pcall(frame)
+    check('a broken chair item is reported', not ok and tostring(err):find('broken item'), err)
+    check('and the built chair is drawn', cells[cell(105, 52)] > 1000)
+    eq('the broken one keeps the game\'s picture', at(103, 52), 501)
+
+    -- an item layer that is missing
+    start(); item(1, 103, 52, 10); chair(1, 105, 52, 10); cells[cell(105, 52)] = 7
+    main.screentexpos_item = nil
+    m = load_script(); I = m.internal
+    check('no item layer: no error', pcall(I.draw_chairs))
+    check('and the built chair is drawn', cells[cell(105, 52)] > 1000)
+
+    -- the world goes
+    start(); item(1, 103, 52, 10)
+    m = load_script(); I = m.internal
+    frame()
+    m.dfhack.onStateChange[next(m.dfhack.onStateChange)](2)
+    start(); item(1, 110, 60, 10)
+    for i = 0, 25 * 17 - 1 do icells[i] = 501 end
+    I.draw_chairs()
+    local n = 0
+    for i = 0, 25 * 17 - 1 do if icells[i] > 1000 then n = n + 1 end end
+    check('a new world: only its own chair on the ground is drawn', n == 1 and at(110, 60) > 1000, n)
 end
 
 -- ---- materials ----------------------------------------------------------------------------------
