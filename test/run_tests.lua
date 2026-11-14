@@ -22,14 +22,15 @@ end
 local function zeros(n) local t = {}; for i = 0, n - 1 do t[i] = 0 end; return t end
 -- a 0-based vector with a length, like the game's
 local function vec(list) local t = {}; for i, v in ipairs(list) do t[i - 1] = v end; return setmetatable(t, {__len=function() return #list end}) end
-local function viewport(dim_x, dim_y) return {dim_x=dim_x, dim_y=dim_y, screentexpos_building_one=zeros(dim_x * dim_y), screentexpos_item=zeros(dim_x * dim_y)} end
+local function viewport(dim_x, dim_y) return {dim_x=dim_x, dim_y=dim_y, screentexpos_building_one=zeros(dim_x * dim_y)} end
 
 -- the game's default palette: shade i of ramp 0 is grey 10*i, of ramp 1 grey 100+10*i
 local palette = {}
 for ramp = 0, 1 do for i = 0, 8 do for c = 0, 2 do palette[ramp * 27 + i * 3 + c] = ramp * 100 + i * 10 + c end end end
 
 local function new_world()
-    local w = {site={}, buildings={}, chairs={}, items={}, ground={}, saves=0, map_loaded=true, fortress=true, next_handle=0}
+    local w = {site={}, buildings={}, chairs={}, pictures={}, timers={}, saves=0, map_loaded=true, fortress=true, next_handle=0}
+    _G.improved_chairs_pictures = nil       -- (shared by every copy of the script)
     -- (the game has eight lower layers; asking for another is an error, as in DFHack)
     local lower = {}
     for i = 0, 7 do lower[i] = viewport(25, 17) end
@@ -58,21 +59,21 @@ local function chair(id, x, y, z, opts)
     return b
 end
 
--- An item: a chair unless opts.other, lying on the ground at x, y, z unless opts.carried.  The
--- game keeps a tile's items in the order of their ids; W.ground is that list for the whole map.
-local function item(id, x, y, z, opts)
-    opts = opts or {}
-    local it = {id=id, pos={x=x, y=y, z=z}, flags={on_ground=not opts.carried, removed=false}}
-    local mat = opts.mat or {0, 0}
-    function it:getMaterial() if opts.broken then error('broken item') end; return mat[1] end
-    function it:getMaterialIndex() return mat[2] end
-    W.all_items = W.all_items or {}
-    W.all_items[id] = it
-    if not opts.other then W.items[#W.items + 1] = it end
-    if not opts.carried then W.ground[#W.ground + 1] = id; table.sort(W.ground) end
-    return it
+-- One of the game's own chair pictures: material class 0 wood, 1 stone, 2 metal, 3 glass; colour
+-- index + 1; `extra` sets the other bits of its flags (wear, decoration), which make it another
+-- picture of the same material.
+local function picture(texpos, material, color_index, extra)
+    local p = {texpos=texpos, flags={material=material, color_index=color_index, whole=material | (extra or 0) << 2 | color_index << 18}}
+    W.pictures[#W.pictures + 1] = p
+    return p
 end
 local function vector_of(list) return setmetatable({}, {__index=function(_, i) return list()[i + 1] end, __len=function() return #list() end}) end
+-- run what dfhack.timeout was given, as the game does when the frames have passed
+local function fire_timers()
+    local due = W.timers
+    W.timers = {}
+    for _, f in pairs(due) do f() end
+end
 
 local function load_script()
     local function copy(v) if type(v) ~= 'table' then return v end; local t = {}; for k, x in pairs(v) do t[k] = copy(x) end; return t end
@@ -80,23 +81,20 @@ local function load_script()
     local env = setmetatable({}, {__index=function(_, key) local v = _G[key]; if v ~= nil then return v end; if key:find('^COLOR_') then return 0 end end})
     env.dfhack_flags = {module=true}
     env.SC_MAP_LOADED, env.SC_WORLD_UNLOADED = 1, 2
-    env.require = function() return anything() end
-    env.defclass = function() return anything() end
+    env.require = function(name)
+        if name == 'plugins.overlay' then return setmetatable({isOverlayEnabled=function(w) W.asked_widget = w; return not W.overlay_off end}, {__index=function() return anything() end}) end
+        return anything()
+    end
+    -- (a class the tests can call the methods of; what it inherits does not matter)
+    env.defclass = function() return {super=anything(), ATTRS=function() end} end
     env.dfhack = {
         onStateChange={},
         printerr=function() end,
         findScript=function() return SCRIPT end,
         isMapLoaded=function() return W.map_loaded end,
         world={isFortressMode=function() return W.fortress end},
-        maps={getTileBlock=function(x, y, z)
-            W.block_reads = (W.block_reads or 0) + 1
-            local ids = {}
-            for _, id in ipairs(W.ground) do
-                local p = W.all_items[id].pos
-                if p.z == z and p.x >> 4 == x >> 4 and p.y >> 4 == y >> 4 then ids[#ids + 1] = id end
-            end
-            return {items=vector_of(function() return ids end)}
-        end},
+        timeout=function(n, unit, f) W.timer_id = (W.timer_id or 0) + 1; W.timers[W.timer_id] = f; W.timeout_args = {n, unit}; return W.timer_id end,
+        timeout_active=function(id) return W.timers[id] end,
         matinfo={decode=function(t, i) return W.materials and W.materials[t .. ':' .. i] or nil end},
         persistent={
             getSiteData=function(key, default)
@@ -119,7 +117,6 @@ local function load_script()
     setmetatable(env.dfhack, {__index=function() return anything() end})
     env.df = {
         building_chairst=CHAIR_TYPE,
-        item={find=function(id) W.item_finds = (W.item_finds or 0) + 1; return W.all_items and W.all_items[id] end},
         building={find=function(id)   -- like the game: integers only, and only 32 bits of them
             if math.type(id) ~= 'integer' then error('integer expected') end
             if W.buildings[id] and W.buildings[id].find_fails then error('find failed') end
@@ -127,7 +124,7 @@ local function load_script()
         end},
         global=setmetatable({}, {__index=function(_, k)
             if k == 'gps' then return W.gps end
-            if k == 'world' then return {items={other={CHAIR=vector_of(function() return W.items end)}}, buildings={other={CHAIR=setmetatable({}, {__index=function(_, i) if i < 0 or i >= #W.chairs then error('index out of bounds') end; return W.chairs[i + 1] end, __len=function() return #W.chairs end})}}, raws={descriptors=W.descriptors or {colors={}, patterns={}}}} end
+            if k == 'world' then return {buildings={other={CHAIR=setmetatable({}, {__index=function(_, i) if i < 0 or i >= #W.chairs then error('index out of bounds') end; return W.chairs[i + 1] end, __len=function() return #W.chairs end})}}, raws={descriptors=W.descriptors or {colors={}, patterns={}}, itemdefs=W.no_pictures and {} or {chair_graphics_info=vector_of(function() return W.pictures end)}}} end
             return W[k]
         end}),
     }
@@ -572,258 +569,192 @@ do
     check('and is had in the next frame', at(103, 52) > 1000)
 end
 
--- ---- chairs lying on the ground ------------------------------------------------------------------
+-- ---- the game's own pictures ----------------------------------------------------------------------
 do
-    local main, cells, icells
-    local function start()
-        W = new_world(); W.window_x, W.window_y, W.window_z = 100, 50, 10
-        main = W.gps.main_viewport; cells, icells = main.screentexpos_building_one, main.screentexpos_item
-    end
-    local function cell(x, y) return (x - W.window_x) * 17 + (y - W.window_y) end
-    -- one frame: the game puts 500 + id of the last item of each tile in the item layer, then the mod draws
-    local function game(vp, z)
-        local layer = vp.screentexpos_item
-        for i = 0, vp.dim_x * vp.dim_y - 1 do layer[i] = 0 end
-        for _, id in ipairs(W.ground) do
-            local p = W.all_items[id].pos
-            local sx, sy = p.x - W.window_x, p.y - W.window_y
-            -- (the game does not draw a hidden item: seen in the game)
-            if not W.all_items[id].flags.hidden and p.z == z and sx >= 0 and sx < vp.dim_x and sy >= 0 and sy < vp.dim_y then layer[sx * vp.dim_y + sy] = 500 + id end
-        end
-    end
-    local function frame()
-        game(main, W.window_z)
-        for d = 0, 7 do if W.gps.lower_viewport[d] then game(W.gps.lower_viewport[d], W.window_z - d - 1) end end
-        I.draw_chairs()
-    end
-    local function at(x, y) return icells[cell(x, y)] end
-    local function pick_up(it) it.flags.on_ground = false; for i, id in ipairs(W.ground) do if id == it.id then table.remove(W.ground, i) end end end
-    local function put_down(it, x, y, z) it.flags.on_ground = true; it.pos = {x=x, y=y, z=z}; W.ground[#W.ground + 1] = it.id; table.sort(W.ground) end
-
-    start()
-    local a = item(1, 103, 52, 10)
-    item(2, 104, 52, 10); item(3, 104, 52, 10, {other=true})        -- a barrel on a chair
-    item(4, 105, 52, 10, {other=true}); item(5, 105, 52, 10)        -- a chair on a barrel
-    item(6, 106, 52, 10, {other=true})                              -- a barrel alone
-    local carried = item(7, 107, 52, 10, {carried=true})
-    item(8, 108, 52, 9); item(9, 109, 52, 2); item(10, 110, 52, 1); item(11, 111, 52, 11)
-    item(12, 99, 52, 10); item(13, 125, 52, 10); item(14, 103, 49, 10); item(15, 103, 67, 10)
-    item(16, 100, 50, 10); item(17, 124, 66, 10)
-    -- the same tile of another level and of another block must not be taken for this one
-    item(18, 103, 52, 9, {other=true}); item(19, 119, 52, 10, {other=true})
-    m = load_script(); I = m.internal
-    frame()
-    check('a chair on the ground is drawn', at(103, 52) > 1000, at(103, 52))
-    eq('a chair under another item is not', at(104, 52), 503)
-    check('a chair on top of another item is', at(105, 52) > 1000)
-    eq('another item is left alone', at(106, 52), 506)
-    eq('a carried chair draws nothing', at(107, 52), 0)
-    check('one level down: the lower layer', W.gps.lower_viewport[0].screentexpos_item[cell(108, 52)] > 1000)
-    eq('and not the main one', at(108, 52), 0)
-    check('eight levels down', W.gps.lower_viewport[7].screentexpos_item[cell(109, 52)] > 1000)
-    check('corner cells', at(100, 50) > 1000 and at(124, 66) > 1000)
-    local written = 0
-    for _, vp in ipairs{main, W.gps.lower_viewport[0], W.gps.lower_viewport[1], W.gps.lower_viewport[7]} do
-        for i, v in pairs(vp.screentexpos_item) do
-            if v > 1000 then written = written + 1 end
-            if i < 0 or i >= 25 * 17 then check('no write outside the item layer', false, i) end
-        end
-    end
-    eq('exactly the six drawable chairs were written', written, 6)
-    for i = 0, 25 * 17 - 1 do if cells[i] ~= 0 then check('the building layer is not touched', false, i) end end
-    eq('chairs on the ground are counted', m.STATS.items, 6)
-
-    -- it looks like a built chair nobody turned
-    local b = chair(1, 112, 52, 10); cells[cell(112, 52)] = 7
-    frame()
-    eq('the same tile as an unturned built chair of that material', at(103, 52), cells[cell(112, 52)])
-
-    -- picked up: what the game shows there now is left alone at once
-    pick_up(a); item(20, 103, 52, 10, {other=true})
-    frame()
-    eq('a chair that was picked up: the item under it shows in the next frame', at(103, 52), 520)
-    -- put down elsewhere: drawn within ITEM_FRAMES frames
-    put_down(a, 113, 52, 10)
-    frame()
-    eq('(the game\'s picture at first)', at(113, 52), 501)
-    for _ = 1, 31 do frame() end
-    check('a chair put down is drawn within 30 frames', at(113, 52) > 1000, at(113, 52))
-    -- something dropped on top of it
-    item(21, 113, 52, 10, {other=true})
-    frame()
-    eq('an item dropped on a chair shows in the next frame', at(113, 52), 521)
-    for _ = 1, 31 do frame() end
-    eq('and keeps showing', at(113, 52), 521)
-
-    -- a chair the game does not show (its tile is hidden): nothing is written there
-    game(main, W.window_z); icells[cell(105, 52)] = 0
-    m.set_facing(1, Wd)         -- (anything that makes the view be worked out again)
+    W = new_world()
+    W.materials = {['0:1']={material={flags={IS_STONE=true}, state_color={Solid=0}}},
+                   ['420:3']={material={flags={WOOD=true}, state_color={Solid=1}}},
+                   ['0:2']={material={flags={IS_METAL=true}, state_color={Solid=0}}},
+                   ['3:0']={material={flags={IS_GLASS=true}, state_color={Solid=1}}}}
+    local colors = {}
+    for i = 1, 10 do colors[i] = {palette={color=W.gps.default_palette.color}} end
+    W.descriptors = {patterns=vec{{colors=vec{4}}, {colors=vec{7}}}, colors=vec(colors)}
+    W.window_x, W.window_y, W.window_z = 0, 0, 9
+    chair(1, 3, 3, 9, {mat={0, 1}})
+    chair(2, 5, 3, 9, {mat={420, 3}}); chair(3, 7, 3, 9, {mat={0, 2}}); chair(4, 9, 3, 9, {mat={3, 0}})
+    local metal, glassy = picture(7005, 2, 5), picture(7006, 3, 8)
+    local stone = picture(7001, 1, 5)
+    local worn = picture(7002, 1, 5, 3)
+    local wood = picture(7003, 0, 8)
+    local m = load_script()
+    local I = m.internal
+    I.keep_pictures(); I.draw_chairs()
+    local built = W.gps.main_viewport.screentexpos_building_one
+    for x = 3, 9, 2 do built[x * 17 + 3] = 1 end
     I.draw_chairs()
-    eq('a chair on the ground the game does not show stays unshown', at(105, 52), 0)
-    for _ = 1, 3 do I.draw_chairs() end
-    eq('in the frames after as well', at(105, 52), 0)
+    eq('a picture gets the tile of an unturned built chair of its material and colour', stone.texpos, built[3 * 17 + 3])
+    eq('a worn chair of that material gets the same tile', worn.texpos, stone.texpos)
+    check('another material gets another', wood.texpos ~= stone.texpos and wood.texpos ~= 7003, wood.texpos)
+    eq('a wooden picture gets the built wooden chair\'s tile', wood.texpos, built[5 * 17 + 3])
+    eq('a metal one the built metal chair\'s', metal.texpos, built[7 * 17 + 3])
+    eq('a glass one the built glass chair\'s', glassy.texpos, built[9 * 17 + 3])
+    local four = {}
+    for _, p in ipairs{stone, wood, metal, glassy} do four[p.texpos] = true end
+    local n = 0; for _ in pairs(four) do n = n + 1 end
+    eq('four materials, four tiles', n, 4)
+    fire_timers()
+    eq('it is asked whether this mod\'s map overlay is on', W.asked_widget, 'improved-chairs.map')
+    eq('every so many frames', W.timeout_args[2], 'frames')
 
-    -- an item the game has marked as removed is not drawn over
-    local gone = item(23, 116, 52, 10); gone.flags.removed = true
-    frame()
-    eq('a removed chair item is left alone', at(116, 52), 523)
+    -- a kind of chair shown for the first time is given its tile in the next frame
+    local glass = picture(7004, 3, 2)
+    I.keep_pictures()
+    check('a new picture is swapped in the next frame', glass.texpos ~= 7004, glass.texpos)
 
-    -- a new chair item: the game's list grew, so it is drawn at once
-    item(22, 115, 52, 10)
-    frame()
-    check('a chair that was just made is drawn in the next frame', at(115, 52) > 1000, at(115, 52))
+    -- left alone between checks, looked at again every 30 frames
+    stone.texpos = 7101      -- the game made the picture again
+    for _ = 1, 28 do I.keep_pictures() end
+    eq('the list is not gone through every frame', stone.texpos, 7101)
+    for _ = 1, 2 do I.keep_pictures() end
+    eq('a picture the game made again is swapped within 30 frames', stone.texpos, worn.texpos)
 
-    -- the game gives a chair on the ground another texture number: drawn again within a few frames
-    do
-        local function frame2()
-            game(main, W.window_z); icells[cell(115, 52)] = 9000
-            I.draw_chairs()
-        end
-        for _ = 1, 7 do frame2() end
-        check('the game renumbers a chair\'s picture: drawn again within 7 frames', at(115, 52) > 1000 and at(115, 52) ~= 9000, at(115, 52))
-        for _ = 1, 40 do frame() end
-        check('and again when it goes back', at(115, 52) > 1000 and at(115, 52) ~= 522, at(115, 52))
-    end
+    -- the overlay is switched off: the game's numbers come back, the newest ones
+    W.overlay_off = true
+    fire_timers()
+    eq('switched off: the game\'s picture is back', stone.texpos, 7101)
+    eq('and the worn one', worn.texpos, 7002)
+    eq('and the wood one', wood.texpos, 7003)
+    eq('and the glass one', glass.texpos, 7004)
+    eq('nothing watches any more', next(W.timers), nil)
+    -- and on again
+    W.overlay_off = false
+    I.keep_pictures()
+    check('switched on again: swapped again', stone.texpos ~= 7101 and stone.texpos == worn.texpos, stone.texpos)
+    check('and watched again', next(W.timers) ~= nil)
+    local timers = 0
+    for _ = 1, 100 do I.keep_pictures() end
+    for _ in pairs(W.timers) do timers = timers + 1 end
+    eq('one watcher, however many frames', timers, 1)
+    for _ = 1, 5 do fire_timers() end
+    timers = 0
+    for _ in pairs(W.timers) do timers = timers + 1 end
+    eq('one watcher, however often it has looked', timers, 1)
 
-    -- the camera moves: at once at the new cells
-    W.window_x = 101; frame()
-    check('after a camera move the chairs are at their new cells', at(105, 52) > 1000 and at(104, 52) == 503 and at(106, 52) == 506)
+    -- the world goes: the game's numbers are put back in what is left of its list
+    local ours = stone.texpos
+    local fire = m.dfhack.onStateChange[next(m.dfhack.onStateChange)]
+    fire(2)
+    eq('world unloaded: the game\'s picture is back', stone.texpos, 7101)
+    eq('and the others', (worn.texpos == 7002 and wood.texpos == 7003 and glass.texpos == 7004), true)
+    -- the next world: the game has made its list afresh, with other numbers under the same flags
+    -- (and the game may well give a picture the very number this mod's tile had in the last world)
+    W.pictures = {}
+    local again = picture(ours, 1, 5)
+    fire(1)
+    I.keep_pictures()
+    check('next world: swapped', again.texpos ~= ours and again.texpos > 1000, again.texpos)
+    W.overlay_off = true; fire_timers()
+    eq('and put back to that world\'s number, not the last one\'s', again.texpos, ours)
+end
 
-    -- a tile's block is read once per look-up of the chairs, not once per frame
-    W.window_x = 100; frame()
-    local reads = W.block_reads
-    for _ = 1, 20 do frame() end
-    check('blocks are not read every frame', W.block_reads - reads <= 8, W.block_reads - reads)
-    local finds = W.item_finds
-    for _ = 1, 20 do frame() end
-    check('and their items not looked at again while nothing came or went', W.item_finds - finds <= #W.ground, W.item_finds - finds)
+do  -- the overlay itself: each frame keeps the pictures, and being switched off puts them back
+    W = new_world()
+    W.window_x, W.window_y, W.window_z = 0, 0, 9
+    local p = picture(7001, 1, 0)
+    local m = load_script()
+    local map = m.OVERLAY_WIDGETS.map
+    map.onRenderFrame({}, {}, {})
+    check('a frame of the overlay swaps the pictures', p.texpos ~= 7001, p.texpos)
+    map.overlay_ondisable()
+    eq('told it is switched off: the game\'s picture is back at once', p.texpos, 7001)
+    fire_timers()
+    eq('and nothing watches any more', next(W.timers), nil)
+    -- all overlays switched off: this one still counts as on, but no frame comes any more
+    map.onRenderFrame({}, {}, {})
+    fire_timers()
+    check('frames still coming: stays swapped', p.texpos ~= 7001, p.texpos)
+    _G.improved_chairs_pictures.drawn = os.time() - 60
+    fire_timers()
+    eq('no frame for a while: the game\'s picture is back', p.texpos, 7001)
+    eq('and the watching ends', next(W.timers), nil)
+    -- an error in the pictures does not stop the chairs being drawn, and is said once
+    local said = {}
+    m.dfhack.printerr = function(msg) said[#said + 1] = msg end
+    chair(1, 3, 3, 9)
+    W.no_pictures = true
+    W.gps.main_viewport.screentexpos_building_one[3 * 17 + 3] = 1
+    map.onRenderFrame({}, {}, {}); map.onRenderFrame({}, {}, {})
+    check('pictures fail: the chair is still drawn', W.gps.main_viewport.screentexpos_building_one[3 * 17 + 3] > 1000)
+    eq('and it is said once', #said, 1)
+    check('as what it is', said[1] and said[1]:find('chair pictures') ~= nil, said[1])
+end
 
-    -- hidden items (the game draws the last item of a tile that is not hidden)
-    start()
-    item(1, 103, 52, 10, {other=true}); local h1 = item(2, 103, 52, 10)      -- a hidden chair on a barrel
-    local h2 = item(3, 105, 52, 10)                                           -- a hidden chair alone
-    local h3 = item(4, 107, 52, 10, {other=true}); item(5, 107, 52, 10); local h4 = item(6, 107, 52, 10)
-    h1.flags.hidden, h2.flags.hidden, h3.flags.hidden, h4.flags.hidden = true, true, true, true
-    m = load_script(); I = m.internal
-    for _ = 1, 40 do frame() end
-    eq('a hidden chair on a barrel: the barrel shows', at(103, 52), 501)
-    eq('a hidden chair alone: nothing', at(105, 52), 0)
-    check('a chair under a hidden item is drawn', at(107, 52) > 1000, at(107, 52))
-    h1.flags.hidden = false
-    for _ = 1, 40 do frame() end
-    check('no longer hidden: drawn', at(103, 52) > 1000, at(103, 52))
+do  -- the art is read again: the pictures move to the new tiles, and still go back to the game's
+    W = new_world()
+    local p = picture(7001, 1, 0)
+    local m = load_script()
+    m.internal.keep_pictures()
+    local first = p.texpos
+    m.tile_handles = {}; m.GENERATION = m.GENERATION + 1      -- as `improved-chairs reload` does
+    m.internal.keep_pictures()
+    check('painted again: the picture has the new tile', p.texpos ~= first and p.texpos > 1000, p.texpos)
+    m.internal.restore_pictures()
+    eq('and the game\'s number is still known', p.texpos, 7001)
+end
 
-    -- the view is worked out between an item coming or going and the next look-up of the chairs
-    for _, how in ipairs{'camera', 'turn'} do
-        start()
-        item(1, 103, 52, 10, {other=true}); local top = item(2, 103, 52, 10)     -- a chair on a barrel
-        item(3, 105, 52, 10)                                                      -- a chair alone
-        chair(1, 110, 52, 10)
-        m = load_script(); I = m.internal
-        for _ = 1, 3 do frame() end
-        check('(drawn at first)', at(103, 52) > 1000 and at(105, 52) > 1000)
-        pick_up(top); item(4, 105, 52, 10, {other=true})                          -- and a barrel lands on the other
-        if how == 'camera' then W.window_y = 49 else m.set_facing(1, Wd) end
-        local wrong = 0
-        for _ = 1, 40 do
-            frame()
-            if at(103, 52) ~= 501 or at(105, 52) ~= 504 then wrong = wrong + 1 end
-        end
-        eq('a chair picked up, a barrel dropped on another, then the ' .. how .. ': no frame with a chair over a barrel', wrong, 0)
-    end
+do  -- a tile that cannot be had: the game's picture stays, and is asked for again
+    W = new_world()
+    W.texpos_of = function() return -1 end
+    local p = picture(7001, 2, 0)
+    local m = load_script()
+    m.internal.keep_pictures()
+    eq('no tile: the game\'s picture stays', p.texpos, 7001)
+    eq('and nothing needs watching', next(W.timers), nil)
+    W.texpos_of = nil
+    for _ = 1, 30 do m.internal.keep_pictures() end
+    check('swapped once the tile can be had', p.texpos ~= 7001, p.texpos)
+    m.internal.restore_pictures()
+    W.texpos_of = function() return 0 end
+    m.internal.keep_pictures()
+    eq('tile number 0 is no tile either', p.texpos, 7001)
+end
 
-    -- the same when the chair picked up is not the newest item of its part of the map
-    start()
-    item(1, 103, 52, 10, {other=true}); local mid = item(2, 103, 52, 10); item(9, 110, 60, 10, {other=true})
-    m = load_script(); I = m.internal
-    for _ = 1, 3 do frame() end
-    pick_up(mid); W.window_y = 49
-    local wrong_mid = 0
-    for _ = 1, 40 do frame(); if at(103, 52) ~= 501 then wrong_mid = wrong_mid + 1 end end
-    eq('an older chair picked up, then the camera: no frame with a chair over the barrel', wrong_mid, 0)
+do  -- a picture somebody else changed is not touched when putting back
+    W = new_world()
+    local p, q = picture(7001, 1, 0), picture(7002, 2, 0)
+    local m = load_script()
+    m.internal.keep_pictures()
+    check('both swapped', p.texpos ~= 7001 and q.texpos ~= 7002)
+    p.texpos = 9999
+    m.internal.restore_pictures()
+    eq('not ours any more: left alone', p.texpos, 9999)
+    eq('ours: put back', q.texpos, 7002)
+end
 
-    -- blocks that differ in one coordinate only are not mixed up
-    start()
-    item(1, 103, 52, 10); item(2, 103, 52 + 16, 10, {other=true}); item(3, 103 + 16, 52, 10, {other=true})
-    item(4, 103, 60, 10, {other=true}); item(5, 103, 60 + 16, 10); item(6, 103 + 16, 60, 10)
-    W.gps.main_viewport = viewport(25, 40); main = W.gps.main_viewport; icells = main.screentexpos_item
-    local function at40(x, y) return icells[(x - 100) * 40 + (y - 50)] end
-    m = load_script(); I = m.internal
-    frame()
-    check('chairs in three neighbouring blocks: each judged by its own block',
-        at40(103, 52) > 1000 and at40(103, 76) > 1000 and at40(119, 60) > 1000 and at40(103, 68) == 502 and at40(119, 52) == 503 and at40(103, 60) == 504)
+do  -- two copies of the script share what was swapped
+    W = new_world()
+    local p = picture(7001, 1, 0)
+    local a = load_script()
+    a.internal.keep_pictures()
+    check('swapped by the first copy', p.texpos ~= 7001)
+    local b = load_script()
+    b.internal.keep_pictures()
+    b.internal.restore_pictures()
+    eq('the second copy puts the game\'s number back, not the first copy\'s tile', p.texpos, 7001)
+end
 
-    -- a chair put down with nothing else going on: drawn within 30 frames
-    start(); local loose = item(1, 103, 52, 10, {carried=true}); item(2, 120, 60, 10)
-    m = load_script(); I = m.internal
-    for _ = 1, 3 do frame() end
-    put_down(loose, 103, 52, 10)
-    local waited = 0
-    repeat frame(); waited = waited + 1 until at(103, 52) > 1000 or waited > 100
-    check('a chair put down is drawn within 30 frames', waited <= 31, waited)
-
-    -- very many chair items: they are looked up less often
-    start(); loose = item(1, 103, 52, 10, {carried=true})
-    for id = 2, 801 do item(id, 0, 0, 0, {carried=true}) end
-    m = load_script(); I = m.internal
-    for _ = 1, 3 do frame() end
-    put_down(loose, 103, 52, 10)
-    waited = 0
-    repeat frame(); waited = waited + 1 until at(103, 52) > 1000 or waited > 300
-    check('among 800 chair items a chair put down is drawn within 100 frames, not 30', waited > 31 and waited <= 101, waited)
-
-    -- a block with more items than are worth reading: its chairs keep the game's picture
-    start(); item(1, 103, 52, 10)
-    for id = 2, 1030 do item(id, 110, 60, 10, {other=true}) end
-    item(1031, 120, 52, 10)                         -- (in the next block)
-    m = load_script(); I = m.internal
-    W.item_finds = 0
-    for _ = 1, 40 do frame() end
-    eq('a chair in a block of more than 1024 items keeps the game\'s picture', at(103, 52), 501)
-    check('a chair in the block beside it is drawn', at(120, 52) > 1000)
-    check('and the big block\'s items are not gone through', W.item_finds < 100, W.item_finds)
-
-    -- no built chair at all: the chairs on the ground are still drawn
-    start(); item(1, 103, 52, 10)
-    m = load_script(); I = m.internal
-    frame()
-    check('no built chair: a chair on the ground is drawn', at(103, 52) > 1000)
-
-    -- materials
-    start()
-    W.materials = {['420:5']={material={flags={WOOD=true}, state_color={Solid=-1}}}}
-    item(1, 103, 52, 10, {mat={420, 5}}); item(2, 104, 52, 10, {mat={0, 7}})
-    m = load_script(); I = m.internal
-    frame()
-    check('wood and stone chairs on the ground get different tiles', at(103, 52) > 1000 and at(104, 52) > 1000 and at(103, 52) ~= at(104, 52))
-
-    -- a chair item that cannot be read: reported, the built chairs are drawn all the same
-    start()
-    item(1, 103, 52, 10, {broken=true}); chair(1, 105, 52, 10); cells[cell(105, 52)] = 7
-    m = load_script(); I = m.internal
-    local ok, err = pcall(frame)
-    check('a broken chair item is reported', not ok and tostring(err):find('broken item'), err)
-    check('and the built chair is drawn', cells[cell(105, 52)] > 1000)
-    eq('the broken one keeps the game\'s picture', at(103, 52), 501)
-
-    -- an item layer that is missing
-    start(); item(1, 103, 52, 10); chair(1, 105, 52, 10); cells[cell(105, 52)] = 7
-    main.screentexpos_item = nil
-    m = load_script(); I = m.internal
-    check('no item layer: no error', pcall(I.draw_chairs))
-    check('and the built chair is drawn', cells[cell(105, 52)] > 1000)
-
-    -- the world goes
-    start(); item(1, 103, 52, 10)
-    m = load_script(); I = m.internal
-    frame()
-    m.dfhack.onStateChange[next(m.dfhack.onStateChange)](2)
-    start(); item(1, 110, 60, 10)
-    for i = 0, 25 * 17 - 1 do icells[i] = 501 end
-    I.draw_chairs()
-    local n = 0
-    for i = 0, 25 * 17 - 1 do if icells[i] > 1000 then n = n + 1 end end
-    check('a new world: only its own chair on the ground is drawn', n == 1 and at(110, 60) > 1000, n)
+do  -- a DFHack that does not know the game's list of pictures: built chairs are drawn all the same
+    W = new_world()
+    W.no_pictures = true
+    W.window_x, W.window_y, W.window_z = 0, 0, 9
+    chair(1, 3, 3, 9)
+    local m = load_script()
+    local ok = pcall(m.internal.keep_pictures)
+    check('the list cannot be read: an error for the overlay to report', not ok)
+    W.gps.main_viewport.screentexpos_building_one[3 * 17 + 3] = 1
+    m.internal.draw_chairs()
+    check('and the chair is drawn', W.gps.main_viewport.screentexpos_building_one[3 * 17 + 3] > 1000)
+    check('putting back does no harm', pcall(m.internal.restore_pictures))
 end
 
 -- ---- materials ----------------------------------------------------------------------------------

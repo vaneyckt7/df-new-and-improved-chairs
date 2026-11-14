@@ -5,6 +5,8 @@
 -- All of it is this script.  Two overlay widgets do the work:
 --   map    after the game has drawn the map, puts the chair pictures in the map's building layer
 --   sheet  the turn and nudge controls, and the chair's icons, on the chair's view sheet
+-- While the map widget is on, the game's own chair pictures (loose chairs, item icons) are
+-- pointed at this mod's art as well; see "the game's own pictures".
 -- Facings and nudges are kept here and saved with the fortress (DFHack site data, keyed by
 -- building id).  A chair that has never been turned faces south.
 --
@@ -220,7 +222,7 @@ end
 -- textures are never deleted: DFHack does not hand a deleted handle's slot back cleanly.
 tile_handles = tile_handles or {}
 STATS = STATS or {frames=0, cells=0, tiles=0}
-STATS.indexes, STATS.views, STATS.items = STATS.indexes or 0, STATS.views or 0, STATS.items or 0
+STATS.indexes, STATS.views = STATS.indexes or 0, STATS.views or 0
 
 -- Goes up whenever the caches above are emptied (the world goes, the art is read again), so
 -- that what the map overlay remembers of them is dropped too.
@@ -458,6 +460,8 @@ function retry_save()
     put_back(facings, nudges, mine)
 end
 
+local restore_pictures      -- see "the game's own pictures"
+
 -- One handler per copy of this script: DFHack can have two copies loaded (the installed mod and
 -- the copy a world carries in its own mod list), each with its own tables to fill and empty.
 dfhack.onStateChange[SITE_KEY .. ':' .. DATA] = function(event)
@@ -465,6 +469,8 @@ dfhack.onStateChange[SITE_KEY .. ':' .. DATA] = function(event)
         local ok, err = pcall(restore)
         if not ok then dfhack.printerr('improved-chairs: could not read the saved chairs: ' .. tostring(err)) end
     elseif event == SC_WORLD_UNLOADED then
+        -- (the game's list of pictures outlives the world, until the next one is loaded)
+        pcall(restore_pictures)
         -- building ids, materials and colour indexes are per world
         facing_of, nudge_of, tint_of_material, tile_handles = {}, {}, {}, {}
         stamp, GENERATION = stamp + 1, GENERATION + 1
@@ -510,19 +516,11 @@ function unsaved() return facing_of, nudge_of, changed end
 --   each frame  the cells of the view are written, where the game put a picture: one lookup and
 --               one write per chair in view.
 --
--- A chair that is not built but lies on the ground (in a stockpile, or wherever it was dropped)
--- is an item, which the game draws in the item layer.  Items come and go without the game's
--- list of them changing, so the chairs on the ground are looked up again every ITEM_FRAMES
--- frames.  Of the items on a tile the game draws the last one of the tile's list, so a chair
--- gets its picture only if it is that one, and from then on only while the cell still holds
--- what the game had put there for it: once the chair is picked up, what lies under it shows.
--- (A chair being carried is not drawn by the game at all, so there is nothing to replace.)
+-- A chair that is not built (lying in a stockpile, or wherever it was dropped) is drawn by the
+-- game from its own picture of the chair, which this mod replaces: see "the game's own pictures"
+-- below.  The overlay has nothing to do for it.
 local REINDEX_FRAMES = 600
 local VIEW_FRAMES = 30
-local ITEM_FRAMES = 30
-local ITEM_SOON = 5         -- a view whose chair on the ground shows something else is worked out again, this often at most
-local ITEM_SHARE = 8        -- with very many chair items they are looked up less often: every (their number / this) frames
-local BLOCK_ITEMS = 1024    -- a 16x16 block of the map holding more items than this is not read: its chairs keep the game's picture
 
 -- The game draws the level in view into main_viewport and, where the floor is open, up to
 -- eight levels below it into lower_viewport[0..7] (0 = one level down).
@@ -531,10 +529,6 @@ local LOWER_LEVELS = 8
 local index             -- [z] = {n=, xs=, ys=, ids=, tints=, at=}; at = place in the game's list
 local index_count, index_next_id, index_age = -1, -1, 0
 local unfinished = {}   -- places in the game's list of the chairs still being built
-local item_index        -- [z] = {n=, xs=, ys=, ids=, tints=}: the chairs lying on the ground
-local item_count, item_age = -1, 0
-local tops = {}         -- [block] = {n= its number of items, last= the last of them, seen= view_serial when last checked, [tile in it] = id of the item the game draws there}
-local view_serial = 0   -- goes up with every view worked out
 local view              -- see make_view()
 local generation = -1
 
@@ -570,60 +564,6 @@ local function make_index(v, count, next_id)
     return first_err
 end
 
-local function make_item_index(iv, count)
-    local byz = {}
-    item_index, item_count, item_age, tops = byz, count, 0, {}
-    view = nil
-    for i = 0, count - 1 do
-        local it = iv[i]
-        local flags = it.flags
-        -- (a built chair's item is in its building, a carried one in an inventory; the game does
-        -- not draw a hidden item)
-        if flags.on_ground and not flags.removed and not flags.hidden then
-            local pos = it.pos
-            local level = byz[pos.z]
-            if not level then
-                level = {n=0, xs={}, ys={}, ids={}, tints={}}
-                byz[pos.z] = level
-            end
-            local n = level.n + 1
-            level.n, level.xs[n], level.ys[n], level.ids[n], level.tints[n] = n, pos.x, pos.y, it.id, item_tint(it)
-        end
-    end
-end
-
--- The id of the item the game draws on a tile: the last one of the tile's in its block's list
--- (which is in the order of the items' ids) that is not hidden.  What is found is kept per block
--- until the chairs on the ground are looked up again, but once for every view it is checked that
--- the block still holds as many items and the same last one, so that a view worked out after an item came or went
--- does not rest on what lay there before.
-local function top_item(x, y, z)
-    local key = z << 20 | (x >> 4) << 10 | y >> 4
-    local top = tops[key]
-    if top and top.seen == view_serial then return top[(x & 15) << 4 | y & 15] end
-    local block = dfhack.maps.getTileBlock(x, y, z)
-    local items = block and block.items
-    local n = items and #items or 0
-    local last = n > 0 and items[n - 1] or -1
-    if not top or top.n ~= n or top.last ~= last then
-        top = {n=n, last=last}
-        tops[key] = top
-        if n <= BLOCK_ITEMS then
-            local find = df.item.find
-            for i = 0, n - 1 do
-                local id = items[i]
-                local it = find(id)
-                if it and not it.flags.hidden then
-                    local pos = it.pos
-                    if pos.z == z then top[(pos.x & 15) << 4 | pos.y & 15] = id end
-                end
-            end
-        end
-    end
-    top.seen = view_serial
-    return top[(x & 15) << 4 | y & 15]
-end
-
 -- The texture handle of the tile for a chair with this facing and nudge: at its resting offset
 -- plus the nudge, held to what its material's picture has room for so it never leaves the tile.
 local function resting_handle(tint, facing, n)
@@ -649,13 +589,6 @@ local function chair_handle(b, id, tint)
     return resting_handle(tint, facing_of[id] or DEFAULT, nudge_of[id])
 end
 
--- The same for a chair lying on the ground, which is drawn as a chair nobody turned or nudged;
--- false if it is not the item the game draws on its tile.
-local function item_handle(x, y, z, id, tint)
-    if top_item(x, y, z) ~= id then return false end
-    return resting_handle(tint, DEFAULT, nil)
-end
-
 local function viewport_of(depth, main, lower)
     if depth == 0 then return main end
     return lower[depth - 1]
@@ -664,29 +597,23 @@ end
 -- Work out the view.  A view is {wx=, wy=, wz=, stamp=, age=, handles={}, texpos={}, levels={},
 -- absent={}}; each level {depth=, dim_x=, dim_y=, n=, cell={}, tile={}} holds the cells of the
 -- finished chairs in view on it, each with the place in `handles` of the texture handle of its
--- tile; absent lists the depths that have chairs but no filled layer to draw them in.  A level
--- holds the chairs on the ground likewise in items=, icell={} and itile={}, and in iseen={}
--- what the game had put in each one's cell of the item layer.
+-- tile; absent lists the depths that have chairs but no filled layer to draw them in.
 local function make_view(v, wx, wy, wz, main, lower)
     local vw = {wx=wx, wy=wy, wz=wz, stamp=stamp, age=0, handles={}, texpos={}, levels={}, absent={}, layers={}}
     local handles, place_of, first_err = vw.handles, {}, nil
     STATS.views = STATS.views + 1
-    view_serial = view_serial + 1
     for depth = 0, LOWER_LEVELS do
-        local z = wz - depth
-        local at, iat = index[z], item_index[z]
-        if at or iat then
+        local at = index[wz - depth]
+        if at then
             local vp = viewport_of(depth, main, lower)
             local cells = vp and vp.screentexpos_building_one
             if not cells then      -- a layer that is missing or that the game has not filled
                 vw.absent[#vw.absent + 1] = depth
             else
                 local dim_x, dim_y = vp.dim_x, vp.dim_y
-                local lv = {depth=depth, dim_x=dim_x, dim_y=dim_y, n=0, cell={}, tile={},
-                            items=0, icell={}, itile={}, iseen={}}
-                local xs, ys, ids, tints, places
-                if at then xs, ys, ids, tints, places = at.xs, at.ys, at.ids, at.tints, at.at end
-                for i = 1, at and at.n or 0 do
+                local lv = {depth=depth, dim_x=dim_x, dim_y=dim_y, n=0, cell={}, tile={}}
+                local xs, ys, ids, tints, places = at.xs, at.ys, at.ids, at.tints, at.at
+                for i = 1, at.n do
                     local sx, sy = xs[i] - wx, ys[i] - wy
                     if sx >= 0 and sx < dim_x and sy >= 0 and sy < dim_y then
                         local ok, handle = pcall(chair_handle, v[places[i]], ids[i], tints[i])
@@ -705,33 +632,6 @@ local function make_view(v, wx, wy, wz, main, lower)
                         end
                     end
                 end
-                local icells = iat and vp.screentexpos_item
-                if icells then
-                    xs, ys, ids, tints = iat.xs, iat.ys, iat.ids, iat.tints
-                    for i = 1, iat.n do
-                        local sx, sy = xs[i] - wx, ys[i] - wy
-                        if sx >= 0 and sx < dim_x and sy >= 0 and sy < dim_y then
-                            local c = sx * dim_y + sy
-                            local seen = icells[c]
-                            -- (nothing drawn there: the tile is hidden, or the chair has gone)
-                            if seen ~= 0 then
-                                local ok, handle = pcall(item_handle, xs[i], ys[i], z, ids[i], tints[i])
-                                if ok and handle then
-                                    local place = place_of[handle]
-                                    if not place then
-                                        place = #handles + 1
-                                        handles[place], place_of[handle] = handle, place
-                                    end
-                                    local n = lv.items + 1
-                                    lv.items, lv.icell[n], lv.itile[n], lv.iseen[n] = n, c, place, seen
-                                elseif handle ~= false then
-                                    vw.age = VIEW_FRAMES
-                                    if not ok and not first_err then first_err = handle end
-                                end
-                            end
-                        end
-                    end
-                end
                 vw.levels[#vw.levels + 1] = lv
             end
         end
@@ -740,8 +640,7 @@ local function make_view(v, wx, wy, wz, main, lower)
 end
 
 -- Write a view's tiles into the layers; false if it no longer fits them.  Only cells the game
--- put a building picture in are touched, and in the item layer only cells that still hold what
--- the game drew for the chair.
+-- put a building picture in are touched.
 local function put_view(vw, main, lower)
     local levels, layers, absent = vw.levels, vw.layers, vw.absent
     for i = 1, #absent do
@@ -753,7 +652,6 @@ local function put_view(vw, main, lower)
         local vp = viewport_of(lv.depth, main, lower)
         local cells = vp and vp.screentexpos_building_one
         if not cells or vp.dim_x ~= lv.dim_x or vp.dim_y ~= lv.dim_y then return false end
-        if lv.items > 0 and not vp.screentexpos_item then return false end
         layers[l] = cells
     end
     -- (a handle's texture number is asked for every frame: the game can give it another)
@@ -763,7 +661,7 @@ local function put_view(vw, main, lower)
         local t = texpos_of(handles[i])
         texpos[i] = t and t > 0 and t or false
     end
-    local drawn, item_cells = 0, 0
+    local drawn = 0
     for l = 1, #levels do
         local lv = levels[l]
         local cells = layers[l]
@@ -777,49 +675,22 @@ local function put_view(vw, main, lower)
             end
         end
         layers[l] = false      -- (not kept: the game may free a layer)
-        local items = lv.items
-        if items > 0 then
-            cells = viewport_of(lv.depth, main, lower).screentexpos_item
-            local seen
-            cell, tile, seen = lv.icell, lv.itile, lv.iseen
-            for i = 1, items do
-                local c = cell[i]
-                local t = texpos[tile[i]]
-                if t and cells[c] == seen[i] then
-                    cells[c] = t
-                    item_cells = item_cells + 1
-                elseif t and vw.age >= ITEM_SOON then
-                    -- the game shows something else there now (another item on top, the chair
-                    -- gone, or the same chair under a new texture number): work the view out
-                    -- again next frame instead of leaving the game's picture up for half a second
-                    vw.age = VIEW_FRAMES
-                end
-            end
-        end
     end
     STATS.cells = STATS.cells + drawn
-    STATS.items = STATS.items + item_cells
     return true
 end
 
 local function draw_chairs()
     if not template then return end
     if generation ~= GENERATION then
-        index, item_index, view, generation = nil, nil, nil, GENERATION
+        index, view, generation = nil, nil, GENERATION
     end
     local g = df.global
     local v = g.world.buildings.other.CHAIR
     local count = #v
-    local iv = g.world.items.other.CHAIR
-    local item_err
-    item_age = item_age + 1
-    if not item_index or #iv ~= item_count or (item_age > ITEM_FRAMES and item_age > item_count // ITEM_SHARE) then
-        if count == 0 and #iv == 0 then      -- no chair of any kind: nothing to do
-            index, item_index, view = nil, nil, nil
-            return
-        end
-        local ok, err = pcall(make_item_index, iv, #iv)
-        if not ok then item_err = err end
+    if count == 0 then      -- no chair built: nothing to do
+        index, view = nil, nil
+        return
     end
     local next_id = g.building_next_id
     index_age = index_age + 1
@@ -848,8 +719,108 @@ local function draw_chairs()
     view = vw
     -- (right after it is made a view fits, unless a layer went missing in between)
     if not put_view(vw, main, lower) then view = nil end
-    err = index_err or err or item_err
+    err = index_err or err
     if err then error(err, 0) end
+end
+
+-- ---- the game's own pictures ----------------------------------------------------------------------
+--
+-- Wherever the game shows a chair itself (lying on the ground or in a stockpile, on an item's
+-- sheet, in a list) it draws a picture it has put together for that kind of chair: one per
+-- material class, colour, style and state of wear and decoration, made the first time such a
+-- chair is shown and kept in world.raws.itemdefs.chair_graphics_info, each with the number of its
+-- texture.  While the map overlay is on, every one of them is given the number of this mod's tile
+-- for that material instead (the chair as it stands when nobody has turned or nudged it), so the
+-- game draws this mod's chair in all those places by itself.  The game's numbers are kept and
+-- put back when the overlay is switched off and when the world is unloaded; the game makes the
+-- list afresh for the next world it loads.  Nothing of this is saved.
+--
+-- The art has one chair per material: a worn or decorated chair looks like any other.
+local WIDGET = 'improved-chairs.map'
+local PICTURE_FRAMES = 30     -- how often every picture is checked, new or not
+local WATCH_FRAMES = 30       -- how often it is checked that the overlay is still on
+local STALL_SECONDS = 3       -- no frame drawn for this long: the overlay is taken to be off
+
+-- One table for every copy of this script (see the state-change handler above), so that two
+-- copies never take each other's tile for the game's picture.  orig and ours: a picture's flags
+-- -> the game's texture number and the one put in its place.
+_G.improved_chairs_pictures = _G.improved_chairs_pictures or {orig={}, ours={}, n=-1, age=0}
+local pictures = _G.improved_chairs_pictures
+
+local function game_pictures()
+    return df.global.world.raws.itemdefs.chair_graphics_info
+end
+
+-- The tint key of one of the game's pictures: its colour and material class are in its flags.
+local function picture_tint(flags)
+    local row = flags.material & 3
+    return flags.color_index * 8 | row << 1 | (row == ROW_WOOD and 1 or 0)
+end
+
+-- Give every picture this mod's tile.  A picture whose tile cannot be had keeps the game's.
+local function swap_pictures(v, count)
+    local orig, ours = pictures.orig, pictures.ours
+    local texpos_of = dfhack.textures.getTexposByHandle
+    pictures.n, pictures.age = count, 0
+    for i = 0, count - 1 do
+        local p = v[i]
+        local flags = p.flags
+        local handle = resting_handle(picture_tint(flags), DEFAULT, nil)
+        local want = handle and texpos_of(handle)
+        if want and want > 0 then
+            local now = p.texpos
+            if now ~= want then
+                local key = flags.whole
+                -- (ours under an older number: the tile was painted again; else the game's own)
+                if now ~= ours[key] then orig[key] = now end
+                p.texpos, ours[key] = want, want
+            end
+        end
+    end
+end
+
+-- Put the game's texture numbers back, where a picture still holds ours.
+function restore_pictures()
+    local orig, ours = pictures.orig, pictures.ours
+    pictures.orig, pictures.ours, pictures.n = {}, {}, -1
+    if next(ours) == nil then return end
+    local v = game_pictures()
+    for i = 0, #v - 1 do
+        local p = v[i]
+        local key = p.flags.whole
+        if ours[key] and p.texpos == ours[key] and orig[key] then p.texpos = orig[key] end
+    end
+end
+
+-- While pictures are swapped, something other than the overlay looks every WATCH_FRAMES frames
+-- whether it still is on and still draws, and puts them back when it does not.  (Switching this
+-- one overlay off is told to it, see overlay_ondisable below; switching all of DFHack's overlays
+-- off is not, and neither is anything that stops the frames without a word.)
+local function watch()
+    pictures.watch = nil
+    if next(pictures.ours) == nil then return end
+    local drawing = os.time() - (pictures.drawn or 0) < STALL_SECONDS
+    if drawing and overlay.isOverlayEnabled(WIDGET) then
+        pictures.watch = dfhack.timeout(WATCH_FRAMES, 'frames', watch)
+    else
+        local ok, err = pcall(restore_pictures)
+        if not ok then dfhack.printerr('improved-chairs: could not put the game\'s chair pictures back: ' .. tostring(err)) end
+    end
+end
+
+-- Each frame: the list is gone through when it has grown (a kind of chair shown for the first
+-- time) and every PICTURE_FRAMES frames (the game or DFHack may have given a texture a new number).
+local function keep_pictures()
+    if not template then return end
+    local v = game_pictures()
+    local count = #v
+    pictures.age, pictures.drawn = pictures.age + 1, os.time()
+    if count ~= pictures.n or pictures.age >= PICTURE_FRAMES or generation ~= GENERATION then
+        swap_pictures(v, count)
+    end
+    if next(pictures.ours) ~= nil and not (pictures.watch and dfhack.timeout_active(pictures.watch)) then
+        pictures.watch = dfhack.timeout(WATCH_FRAMES, 'frames', watch)
+    end
 end
 
 ImprovedChairsMapOverlay = defclass(ImprovedChairsMapOverlay, overlay.OverlayWidget)
@@ -860,15 +831,23 @@ ImprovedChairsMapOverlay.ATTRS{
     frame={w=0, h=0},
 }
 
-local draw_failed = false
+-- Told by DFHack when this overlay is switched off: the game's pictures go back at once.
+ImprovedChairsMapOverlay.overlay_ondisable = function() pcall(restore_pictures) end
+
+local draw_failed, pictures_failed = false, false
 local RETRY_FRAMES = 256      -- how often a refused save is tried again
 
 function ImprovedChairsMapOverlay:onRenderFrame(dc, rect)
     ImprovedChairsMapOverlay.super.onRenderFrame(self, dc, rect)
     STATS.frames = STATS.frames + 1
     if site_pending and STATS.frames % RETRY_FRAMES == 0 then pcall(retry_save) end
+    local kept, kept_err = pcall(keep_pictures)
     local ok, err = pcall(draw_chairs)
     -- say so once, not sixty times a second
+    if not kept and not pictures_failed then
+        pictures_failed = true
+        dfhack.printerr('improved-chairs: could not replace the game\'s chair pictures: ' .. tostring(kept_err))
+    end
     if not ok and not draw_failed then
         draw_failed = true
         dfhack.printerr('improved-chairs: drawing failed: ' .. tostring(err))
@@ -1112,6 +1091,7 @@ OVERLAY_WIDGETS = { sheet = ImprovedChairsOverlay, map = ImprovedChairsMapOverla
 -- For test/run_tests.lua only.
 internal = {tile_room=tile_room, tone=tone, paint_pixel=paint_pixel, paint_tile=paint_tile,
             clamp_nudge=clamp_nudge, draw_chairs=draw_chairs, HOME=HOME,
+            keep_pictures=keep_pictures, restore_pictures=restore_pictures, watch_pictures=watch,
             material_tint=material_tint, chair_tint=chair_tint,
             retry_save=retry_save, save_pending=function() return site_pending end}
 
@@ -1133,8 +1113,10 @@ if not dfhack_flags.module then
         for _ in pairs(nudge_of) do nudges = nudges + 1 end
         print(('improved-chairs: template %s, %d frames, %d chair cells drawn, %d tiles painted, %d turned, %d nudged')
             :format(template and 'loaded' or 'MISSING', STATS.frames, STATS.cells, STATS.tiles, facings, nudges))
-        print(('improved-chairs: the chairs were looked up %d times and the view worked out %d times; %d cells of chairs on the ground drawn')
-            :format(STATS.indexes, STATS.views, STATS.items))
+        local swapped = 0
+        for _ in pairs(pictures.ours) do swapped = swapped + 1 end
+        print(('improved-chairs: the chairs were looked up %d times and the view worked out %d times; %d of the game\'s own chair pictures replaced')
+            :format(STATS.indexes, STATS.views, swapped))
     else
         qerror('usage: improved-chairs reload | status')
     end

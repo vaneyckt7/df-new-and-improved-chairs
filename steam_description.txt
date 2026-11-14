@@ -25,20 +25,25 @@ The mod is a plain DFHack script. There is no compiled plugin, so it is not tied
 [*]Subscribe and wait for Steam to finish downloading.
 [*]Fully exit the game, then start it through DFHack and load your fortress.
 [/list]
-Existing saves work. Do not add the mod to a world's mod list at world generation; it does nothing there.
+Existing saves work, and that is all most players need.
+
+Optional, new in 1.1: you can also add the mod to a new world's mod list at world generation. It carries the chair as an ordinary sprite sheet, so in that world the game itself draws the new chair, even without DFHack. Know before you do: a world keeps its own copy of its mods, so chairs in that world stay this chair even if you later switch the mod off or remove it. Turning and moving chairs always needs DFHack.
 
 [h2]What the mod puts on your computer[/h2]
-Nothing but the Workshop download and the copy the game itself makes of every subscribed mod. DFHack runs scripts straight from a Workshop mod, so there is no install step. Besides info.txt, the preview picture, the licence and a readme, the mod is three files, used where they are:
+Nothing but the Workshop download and the copy the game itself makes of every subscribed mod. DFHack runs scripts straight from a Workshop mod, so there is no install step. Besides info.txt, the preview picture, the licence and a readme, the mod is six files, used where they are:
 [code]scripts_modinstalled/improved-chairs.lua
 scripts_modinstalled/internal/improved-chairs/template.lua
-scripts_modinstalled/internal/improved-chairs/chair_controls.png[/code]
-The first is the script, the second the chair art, the third the control symbols. The mod writes no files of its own (DFHack notes its two widgets in dfhack-config/overlay.json) and does not use the network. It stores each chair's facing and position in your save as a small DFHack note.
+scripts_modinstalled/internal/improved-chairs/chair_controls.png
+graphics/graphics_improved_chairs.txt
+graphics/tile_page_improved_chairs.txt
+graphics/images/improved_chairs.png[/code]
+The first is the script, the second the chair art, the third the control symbols. The last three are the chair as a sprite sheet, which the game reads only when a world is generated with the mod in its mod list. The mod writes no files of its own (DFHack notes its two widgets in dfhack-config/overlay.json) and does not use the network. It stores each chair's facing and position in your save as a small DFHack note.
 
 All messages go to the DFHack console. If chairs do not change, look there for lines starting with improved-chairs: and check that both widgets are enabled with this command:
 [code]overlay list chairs[/code]
 
 [h2]Removing it[/h2]
-Unsubscribe. The game keeps its own copy of every subscribed mod, so also delete any new_and_improved_chairs folder left under mods and data/installed_mods in the game's data folder (on Windows %APPDATA%\Bay 12 Games\Dwarf Fortress, or the Dwarf Fortress folder itself on a portable install). Every chair then looks as it did before.
+Unsubscribe. The game keeps its own copy of every subscribed mod, so also delete any new_and_improved_chairs folder left under mods and data/installed_mods in the game's data folder (on Windows %APPDATA%\Bay 12 Games\Dwarf Fortress, or the Dwarf Fortress folder itself on a portable install). Every chair then looks as it did before (except in a world generated with the mod in its mod list, which keeps its own copy).
 
 To switch the mod off without removing it, run these two commands in the DFHack console:
 [code]overlay disable improved-chairs.map
@@ -47,8 +52,8 @@ overlay disable improved-chairs.sheet[/code]
 [h2]Good to know[/h2]
 [list]
 [*]Fortress mode with the graphical tiles only.
-[*]Chairs lying in a stockpile or on the floor get the new picture too, facing south. Only built chairs can be turned and moved.
-[*]A chair lying under a newer item shows that item, as in the game. Chairs lying next to a pile of more than a thousand items (a quantum stockpile) keep the game's picture.
+[*]Chairs lying in a stockpile or on the floor, and the chair icon on an item's sheet, get the new picture too, facing south. Only built chairs can be turned and moved.
+[*]The marks the game adds to a worn or studded chair are not shown on a chair lying loose.
 [*]Moving a chair moves only its picture. A dwarf using it is still drawn in the middle of the tile.
 [/list]
 

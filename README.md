@@ -57,7 +57,8 @@ cf.get_room(facing, 0)              -- pixels of room toward 0 N, 1 E, 2 S, 3 W
 
 The mod is two DFHack overlay widgets. `improved-chairs.map` draws the chairs; `overlay disable
 improved-chairs.map` gives every chair on the map the game's own picture back until you enable
-it again. `improved-chairs.sheet` is the control on the sheet, and it also swaps the sheet's two
+it again (in a world generated with this mod in its mod list, the game's own picture is this
+chair too, see Installation). `improved-chairs.sheet` is the control on the sheet, and it also swaps the sheet's two
 icons; `overlay disable improved-chairs.sheet` hides both. Disable both widgets to switch the
 mod off without removing it. Do not move the sheet widget: it is drawn over the sheet's title,
 so a moved widget no longer lines up with the sheet.
@@ -67,17 +68,26 @@ so a moved widget no longer lines up with the sheet.
 1. Subscribe and wait for Steam to finish downloading.
 2. Fully exit the game, start it again through DFHack and load your fortress.
 
-Existing saves work. Do not add the mod to a world's mod list at world generation; it does
-nothing there.
+Existing saves work, and that is all most players need.
+
+Optionally, since 1.1, you can also add the mod to a new world's mod list at world generation.
+The mod carries the chair as an ordinary sprite sheet that takes the place of the game's chair
+pictures, so in such a world the game itself draws the new chair, with or without DFHack
+running. Know before you do: a world keeps its own copy of its mods, so in that world chairs
+stay this chair even with the widgets disabled or the mod removed, and turning and moving them
+still needs DFHack and the mod.
 
 DFHack runs scripts straight from a Workshop mod, so there is no install step. Besides
-`info.txt`, the preview picture, the licence and this readme, the mod is three files, used
+`info.txt`, the preview picture, the licence and this readme, the mod is six files, used
 where they are:
 
 ```
 scripts_modinstalled/improved-chairs.lua                             the script
 scripts_modinstalled/internal/improved-chairs/template.lua           the chair art
 scripts_modinstalled/internal/improved-chairs/chair_controls.png     the control symbols
+graphics/graphics_improved_chairs.txt                                \
+graphics/tile_page_improved_chairs.txt                                } the sprite sheet, read by the game
+graphics/images/improved_chairs.png                                  /  only at world generation
 ```
 
 It writes no files of its own (DFHack notes the two widgets in `dfhack-config/overlay.json`),
@@ -113,21 +123,28 @@ Only a cell the game has put a building picture in is changed, so a chair the ga
 show stays unshown. A chair that is still being built is drawn as the game draws it. A chair a
 dwarf has started to take apart goes back to the game's picture within 30 frames.
 
-A chair that is an item lying on the ground (in a stockpile, or wherever it was dropped) is in
-the game's item layer, and since 1.1 it gets the same art there, facing south, in the colour of
-its material. The game shows one item per tile: of the items lying there that are not hidden,
-the one made last (not the one dropped last). The chair is drawn only when it is that item, so
-a chair under a newer barrel stays a barrel. The cell is changed only while
-it holds what the game drew for that chair, so when the chair is picked up or something lands on
-it the game's picture shows in the same frame (in the rare case that one item leaves and
-another arrives in the same 16x16 block of the map just as the camera moves, the chair's picture
-can stay over the other item for up to 30 frames); a chair that was just dropped can show the
-game's picture for up to 30 frames (half a second at 60 FPS) first. The game does not draw a chair that a dwarf is
-carrying at all, so there is nothing to replace there. Two bounds keep this cheap in a large
-fortress: with more than 240 chair items the chairs on the ground are looked up every (number of
-chair items / 8) frames instead of every 30, so a dropped chair takes that much longer to change;
-and a 16x16 block of the map holding more than 1024 items (a quantum stockpile, say) is not gone
-through at all, so chairs lying in that block keep the game's picture.
+Everywhere else the game shows a chair (lying in a stockpile or wherever it was dropped, as
+the icon on the chair item's own sheet) it draws one of its own chair pictures: it keeps a
+list of them, one for each material class, colour and state of wear or decoration, each made
+the first time such a chair is shown. Since 1.1, while the `improved-chairs.map` widget is on,
+every picture in that list is pointed at this mod's tile for that material, the chair facing
+south. So the game itself draws the new chair in those places, with its own rules for which
+item of a pile shows, and the mod does no per-chair work for them: the list is gone through
+when it grows and every 30 frames. A kind of chair shown for the first time can have the
+game's picture for a frame. The game's pictures are put back when the widget is disabled
+(within 30 frames) and when the fortress is unloaded; nothing of this is saved. Things to know:
+
+- Only built chairs can be turned and nudged. A loose chair always faces south.
+- The art has one chair per material, so the marks the game adds to a worn chair or one
+  studded with another material are not shown on a loose chair.
+- The game does not draw a chair that a dwarf is carrying at all, so there is nothing to
+  replace there.
+
+In a world generated with the mod in its mod list, the game's pictures are made from the mod's
+sprite sheet (`graphics/`) to begin with: the same chair, drawn by the game from the first
+frame and also when the widget is off. The pointing above still runs there and changes nothing
+you can see; a screenshot of the two side by side differs by at most 2 in 255 per colour
+channel, in the ten materials tried.
 
 Facings and nudges are stored per fortress in DFHack site data (`improved-chairs`), keyed by
 building id. They are restored on map load, and entries for chairs that no longer exist are
@@ -135,7 +152,7 @@ dropped.
 
 ## The art
 
-There is no sheet of finished sprites. `art/sets/slat_template.png` holds the chair once per
+The script uses no sheet of finished sprites. `art/sets/slat_template.png` holds the chair once per
 class of material (rows: wood, stone, metal, glass, each with its own surface texture) and
 facing (columns: N, E, S, W), 32x32 pixels per tile, drawn in marker colours:
 
@@ -156,6 +173,12 @@ writes from the PNG (it needs Python with Pillow). To try a changed template in 
 `improved-chairs reload`. `improved-chairs status` prints how many chair tiles have been
 painted and drawn.
 
+The sprite sheet for newly generated worlds, `graphics/images/improved_chairs.png`, is written
+from the same template by `art/make_sheet.py`: the south-facing chair of each material class,
+its marker tones turned into the shades of the game's default palette, which the game then
+recolours per material as it does its own furniture. The outline is one step off the palette's
+darkest shade so that the game leaves it alone, as the script does.
+
 ## Tests
 
 ```sh
@@ -164,16 +187,18 @@ lua test/run_tests.lua      # any Lua 5.3 or later; DFHack and the game are stub
 
 The tests cover the painting (tones, see-through pixels, moved tiles), the room a chair has in
 its tile, the saved data (reading, the conversion of old saves, dropping chairs that are gone)
-and which map cell a chair is drawn in.
+which map cell a chair is drawn in, and the game's own chair pictures (pointed at the mod's
+tiles, put back when the widget or all of DFHack's overlays are switched off and when the
+world is unloaded).
 
 ## Layout and releasing
 
-The repository is the mod folder: `info.txt`, `preview.png` and `scripts_modinstalled/` are what
-the game and DFHack read. `art/`, `test/` and `docs/` are left out of archives made with
+The repository is the mod folder: `info.txt`, `preview.png`, `scripts_modinstalled/` and
+`graphics/` are what the game and DFHack read. `art/`, `test/` and `docs/` are left out of archives made with
 `git archive` (see `.gitattributes`), so an exported copy is exactly what gets uploaded.
 
 1. Run the checks: `lua test/run_tests.lua`, `python3 art/make_template.py --check` (the Lua
-   template matches the PNG) and
+   template matches the PNG), `python3 art/make_sheet.py --check` (so does the sprite sheet) and
    `cmp art/controls.png scripts_modinstalled/internal/improved-chairs/chair_controls.png`.
 2. In `info.txt`, raise `NUMERIC_VERSION` (keep it three digits: DFHack compares it as text and
    uses the highest copy it finds) and `DISPLAYED_VERSION`, and write a new `STEAM_CHANGELOG`.
