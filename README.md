@@ -75,10 +75,10 @@ Optionally, since 1.1, you can also add the mod to a new world's mod list at wor
 The mod carries the chair as an ordinary sprite sheet that takes the place of the game's chair
 pictures, so in such a world the game itself draws the new chair, also with the widgets
 disabled. Know before you do: treat that choice as permanent for that world. The world is tied
-to the copy of the mod the game keeps under `data/installed_mods`, so keep the mod installed
-for as long as you play that world; what the game does with such a world once the mod's
-folders are deleted has not been tested. Turning and moving chairs works the same as anywhere
-else.
+to the copy of the mod the game keeps under `data/installed_mods`: with that copy in place the
+world loads and keeps the new chair even after you unsubscribe, and with that copy deleted the
+game refuses to load the world ("Failed to find compatible mod"). The build menu's Chair entry
+shows the new chair there too. Turning and moving chairs works the same as anywhere else.
 
 DFHack runs scripts straight from a Workshop mod, so there is no install step. Besides
 `info.txt`, the preview picture, the licence and this readme, the mod is six files, used
@@ -144,8 +144,9 @@ and when the fortress is unloaded; nothing of this is saved. Things to know:
   studded with another material are not shown on a loose chair.
 - The game does not draw a chair that a dwarf is carrying at all, so there is nothing to
   replace there.
-- The chair icon in the building menu is a separate interface picture and keeps the game's
-  chair. The stocks screen shows the new one.
+- The chair icon in the building menu is a separate interface picture. In an existing save it
+  keeps the game's chair; in a world generated with the mod it shows the new one. The stocks
+  screen shows the new one everywhere.
 
 In a world generated with the mod in its mod list, the game's pictures are made from the mod's
 sprite sheet (`graphics/`) to begin with: the same chair, drawn by the game from the first

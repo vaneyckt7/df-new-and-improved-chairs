@@ -5,4 +5,4 @@ tile_page_improved_chairs
 [TILE_PAGE:IMPROVED_CHAIRS]
 	[FILE:images/improved_chairs.png]
 	[TILE_DIM:32:32]
-	[PAGE_DIM_PIXELS:256:128]
+	[PAGE_DIM_PIXELS:256:160]

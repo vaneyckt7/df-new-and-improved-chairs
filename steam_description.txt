@@ -27,7 +27,7 @@ The mod is a plain DFHack script. There is no compiled plugin, so it is not tied
 [/list]
 Existing saves work, and that is all most players need.
 
-Optional, new in 1.1: you can also add the mod to a new world's mod list at world generation. It carries the chair as an ordinary sprite sheet, so in that world the game itself draws the new chair. Know before you do: treat that choice as permanent for that world. Chairs there stay this chair even with the mod switched off, and the world is tied to the game's copy of the mod, so keep the mod installed for as long as you play that world. Turning and moving chairs works the same as anywhere else.
+Optional, new in 1.1: you can also add the mod to a new world's mod list at world generation. It carries the chair as an ordinary sprite sheet, so in that world the game itself draws the new chair. Know before you do: treat that choice as permanent for that world. Chairs there stay this chair even with the mod switched off, and the world is tied to the copy of the mod the game keeps under data/installed_mods: the world still loads after you unsubscribe, but if that copy is deleted the game refuses to load the world. Turning and moving chairs works the same as anywhere else.
 
 [h2]What the mod puts on your computer[/h2]
 Nothing but the Workshop download and the copy the game itself makes of every subscribed mod. DFHack runs scripts straight from a Workshop mod, so there is no install step. Besides info.txt, the preview picture, the licence and a readme, the mod is six files, used where they are:
@@ -53,7 +53,7 @@ overlay disable improved-chairs.sheet[/code]
 [list]
 [*]Fortress mode with the graphical tiles only.
 [*]Chairs lying in a stockpile or on the floor, and the chair icon on an item's sheet, get the new picture too, facing south. Only built chairs can be turned and moved.
-[*]The chair icon in the building menu keeps the game's chair.
+[*]The chair icon in the building menu keeps the game's chair in an existing save. In a world generated with the mod it shows the new one.
 [*]The marks the game adds to a worn or studded chair are not shown on a chair lying loose.
 [*]Moving a chair moves only its picture. A dwarf using it is still drawn in the middle of the tile.
 [/list]

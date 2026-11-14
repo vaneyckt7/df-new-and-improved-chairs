@@ -4,7 +4,8 @@ the game's own chair pictures in worlds generated with this mod: graphics/images
 
 The sheet has the game's layout for a chair: rows wood, stone, metal, glass; columns 0-6 the
 seven style variants (here all the same chair, facing south); column 7 the leg variants, which
-the game draws over the seat (here empty: the legs are part of the chair).
+the game draws over the seat (here empty: the legs are part of the chair).  A fifth row holds
+one more cell, the stone chair again: the Chair entry of the build menu (BUILDING_ICON_CHAIR).
 
 The template marks a pixel's tone (1..255) in pure red or pure blue.  The script paints red on
 the material's own ramp of its palette (the first ramp for wood, the second for the rest) and
@@ -30,6 +31,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 SRC = HERE / "sets" / "slat_template.png"
 OUT = HERE.parent / "graphics" / "images" / "improved_chairs.png"
 TILE, ROWS, SOUTH, VARIANTS, COLUMNS = 32, 4, 2, 7, 8
+ICON_FROM = 1                                           # the build-menu icon is the stone chair
 
 # The game's default palette (df.global.gps.default_palette), shades 0..8 of its first two ramps.
 FIRST = [(47, 48, 56), (70, 62, 61), (78, 71, 67), (86, 79, 73), (96, 88, 82), (116, 106, 99),
@@ -49,7 +51,7 @@ def shade(ramp, tone):
 
 def render():
     src = Image.open(SRC).convert("RGBA")
-    out = Image.new("RGBA", (COLUMNS * TILE, ROWS * TILE), (0, 0, 0, 0))
+    out = Image.new("RGBA", (COLUMNS * TILE, (ROWS + 1) * TILE), (0, 0, 0, 0))
     for row in range(ROWS):
         tile = src.crop((SOUTH * TILE, row * TILE, (SOUTH + 1) * TILE, (row + 1) * TILE))
         own = FIRST if row == 0 else SECOND
@@ -68,6 +70,8 @@ def render():
                 px[x, y] = (r, g, b, a)
         for col in range(VARIANTS):
             out.paste(tile, (col * TILE, row * TILE))
+        if row == ICON_FROM:
+            out.paste(tile, (0, ROWS * TILE))
     return out
 
 

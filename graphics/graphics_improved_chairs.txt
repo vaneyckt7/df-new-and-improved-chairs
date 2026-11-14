@@ -5,7 +5,7 @@ graphics_improved_chairs
 New and Improved Chairs: the game's own chair pictures, for worlds generated with this mod.
 Same names as the game's (vanilla_items_graphics/graphics/graphics_items.txt), so these take
 their place.  Every style variant is the same chair; the leg variants are empty, because the
-legs are part of the chair.  Made by art/make_sheet.py.
+legs are part of the chair.  The last line is the build menu's Chair entry.  Made by art/make_sheet.py.
 
 [TILE_GRAPHICS:IMPROVED_CHAIRS:0:1:ITEM_CHAIR]
 	[TILE_GRAPHICS:IMPROVED_CHAIRS:0:0:ITEM_CHAIR_WOOD:1]
@@ -40,3 +40,7 @@ legs are part of the chair.  Made by art/make_sheet.py.
 	[TILE_GRAPHICS:IMPROVED_CHAIRS:7:1:ITEM_CHAIR_LEG_VARIANT:2]
 	[TILE_GRAPHICS:IMPROVED_CHAIRS:7:2:ITEM_CHAIR_LEG_VARIANT:3]
 	[TILE_GRAPHICS:IMPROVED_CHAIRS:7:3:ITEM_CHAIR_LEG_VARIANT:4]
+
+The Chair entry of the build menu, which the game draws from its own name for it.
+
+[TILE_GRAPHICS:IMPROVED_CHAIRS:0:4:BUILDING_ICON_CHAIR]

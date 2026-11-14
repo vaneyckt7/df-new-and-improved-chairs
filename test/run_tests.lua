@@ -1010,9 +1010,10 @@ do  -- the sprite sheet for new worlds: every chair picture of the game, each in
         end
     end
     for v = 1, 4 do eq('sheet: leg variant ' .. v .. ' is an empty cell', got['ITEM_CHAIR_LEG_VARIANT:' .. v], '7:' .. (v - 1)) end
-    eq('sheet: nothing else is defined', n, 33)
+    eq('sheet: the build menu entry is the fifth row', got['BUILDING_ICON_CHAIR'], '0:4')
+    eq('sheet: nothing else is defined', n, 34)
     local page = slurp(here .. '/../graphics/tile_page_improved_chairs.txt')
-    check('sheet: the page is 8 by 4 tiles of 32', page:find('[TILE_DIM:32:32]', 1, true) and page:find('[PAGE_DIM_PIXELS:256:128]', 1, true))
+    check('sheet: the page is 8 by 5 tiles of 32', page:find('[TILE_DIM:32:32]', 1, true) and page:find('[PAGE_DIM_PIXELS:256:160]', 1, true))
     check('sheet: the page names the picture', page:find('[FILE:images/improved_chairs.png]', 1, true))
     check('sheet: the definitions use that page', page:find('[TILE_PAGE:IMPROVED_CHAIRS]', 1, true))
 end
