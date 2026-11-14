@@ -2,7 +2,7 @@
 
 Chairs become heavy dwarven slat-back chairs. A built chair you can turn to face north, east, south or west, and slide a few pixels inside its tile to pull it up to a table. The chair takes its colour from the material it is made of.
 
-It is purely cosmetic. The game has no idea of chair facing, so nothing about the chair, the room or your fortress changes, and removing the mod puts every chair back as it was.
+It is purely cosmetic. The game has no idea of chair facing, so nothing about the chair, the room or your fortress changes, and removing the mod puts every chair back as it was (the one exception is a world generated with the mod in its mod list, see below).
 
 [h2]How to use it[/h2]
 [list]
@@ -27,7 +27,7 @@ The mod is a plain DFHack script. There is no compiled plugin, so it is not tied
 [/list]
 Existing saves work, and that is all most players need.
 
-Optional, new in 1.1: you can also add the mod to a new world's mod list at world generation. It carries the chair as an ordinary sprite sheet, so in that world the game itself draws the new chair. Know before you do: treat that choice as permanent for that world. Chairs there stay this chair even with the mod switched off, and the world is tied to the copy of the mod the game keeps under data/installed_mods: the world still loads after you unsubscribe, but if that copy is deleted the game refuses to load the world. Turning and moving chairs works the same as anywhere else.
+Optional, new in 1.1: you can also add the mod to a new world's mod list at world generation. It carries the chair as an ordinary sprite sheet, so in that world the game itself draws the new chair. Know before you do: treat that choice as permanent for that world. Chairs there stay this chair even with the mod switched off, and the world is tied to the copy of the mod the game keeps under data/installed_mods: the world still loads after you unsubscribe, but if that copy is deleted as well the game refuses to load the world. Turning and moving chairs works the same as anywhere else.
 
 [h2]What the mod puts on your computer[/h2]
 Nothing but the Workshop download and the copy the game itself makes of every subscribed mod. DFHack runs scripts straight from a Workshop mod, so there is no install step. Besides info.txt, the preview picture, the licence and a readme, the mod is six files, used where they are:

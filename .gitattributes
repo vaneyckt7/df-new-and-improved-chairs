@@ -3,3 +3,4 @@ test export-ignore
 docs export-ignore
 .gitignore export-ignore
 .gitattributes export-ignore
+steam_description.txt export-ignore

@@ -80,6 +80,21 @@ if __name__ == "__main__":
     if "--check" in sys.argv[1:]:
         if not OUT.exists() or Image.open(OUT).convert("RGBA").tobytes() != sheet.tobytes():
             sys.exit(f"{OUT} does not match {SRC}: run art/make_sheet.py")
+        # Independent of render(): what the definitions in graphics/ expect to find in each cell.
+        on_disk = Image.open(OUT).convert("RGBA")
+        cell = lambda c, r: on_disk.crop((c * TILE, r * TILE, (c + 1) * TILE, (r + 1) * TILE))
+        empty = lambda im: im.getchannel("A").getbbox() is None
+        if on_disk.size != (COLUMNS * TILE, (ROWS + 1) * TILE):
+            sys.exit(f"{OUT}: size {on_disk.size}")
+        for r in range(ROWS):
+            if any(empty(cell(c, r)) or cell(c, r).tobytes() != cell(0, r).tobytes() for c in range(VARIANTS)):
+                sys.exit(f"{OUT}: row {r} must hold the same chair in columns 0-{VARIANTS - 1}")
+            if not empty(cell(VARIANTS, r)):
+                sys.exit(f"{OUT}: the leg cell of row {r} must be empty")
+        if cell(0, ROWS).tobytes() != cell(0, ICON_FROM).tobytes():
+            sys.exit(f"{OUT}: the build-menu cell (0:{ROWS}) must be the stone chair")
+        if not all(empty(cell(c, ROWS)) for c in range(1, COLUMNS)):
+            sys.exit(f"{OUT}: the rest of row {ROWS} must be empty")
         print(f"{OUT.name} matches the template")
     else:
         OUT.parent.mkdir(parents=True, exist_ok=True)

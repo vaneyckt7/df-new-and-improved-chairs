@@ -76,8 +76,8 @@ The mod carries the chair as an ordinary sprite sheet that takes the place of th
 pictures, so in such a world the game itself draws the new chair, also with the widgets
 disabled. Know before you do: treat that choice as permanent for that world. The world is tied
 to the copy of the mod the game keeps under `data/installed_mods`: with that copy in place the
-world loads and keeps the new chair even after you unsubscribe, and with that copy deleted the
-game refuses to load the world ("Failed to find compatible mod"). The build menu's Chair entry
+world loads and keeps the new chair even after you unsubscribe, and with that copy deleted as
+well the game refuses to load the world ("Failed to find compatible mod"). The build menu's Chair entry
 shows the new chair there too. Turning and moving chairs works the same as anywhere else.
 
 DFHack runs scripts straight from a Workshop mod, so there is no install step. Besides
