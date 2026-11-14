@@ -673,9 +673,15 @@ do  -- the overlay itself: each frame keeps the pictures, and being switched off
     map.onRenderFrame({}, {}, {})
     fire_timers()
     check('frames still coming: stays swapped', p.texpos ~= 7001, p.texpos)
-    _G.improved_chairs_pictures.drawn = os.time() - 60
+    local real_time = os.time
+    os.time = function() return 5000 end
+    _G.improved_chairs_pictures.drawn = 4998
     fire_timers()
-    eq('no frame for a while: the game\'s picture is back', p.texpos, 7001)
+    check('two seconds without a frame: still swapped', p.texpos ~= 7001, p.texpos)
+    _G.improved_chairs_pictures.drawn = 4997
+    fire_timers()
+    os.time = real_time
+    eq('three seconds without a frame: the game\'s picture is back', p.texpos, 7001)
     eq('and the watching ends', next(W.timers), nil)
     -- an error in the pictures does not stop the chairs being drawn, and is said once
     local said = {}
@@ -988,6 +994,27 @@ do  -- two copies of the script each keep their own state-change handler
     eq('one handler', n, 1)
     W.site['improved-chairs'] = 5
     check('a failing restore does not escape the handler', pcall(m.dfhack.onStateChange[next(m.dfhack.onStateChange)], 1))
+end
+
+do  -- the sprite sheet for new worlds: every chair picture of the game, each in its own cell
+    local function slurp(path) local f = assert(io.open(path)); local s = f:read('a'); f:close(); return s end
+    local got, n = {}, 0
+    for col, row, token in slurp(here .. '/../graphics/graphics_improved_chairs.txt')
+            :gmatch('%[TILE_GRAPHICS:IMPROVED_CHAIRS:(%d+):(%d+):([%w_:]+)%]') do
+        got[token] = col .. ':' .. row; n = n + 1
+    end
+    eq('sheet: the plain chair is the stone one', got['ITEM_CHAIR'], '0:1')
+    for row, class in ipairs{'WOOD', 'STONE', 'METAL', 'GLASS'} do
+        for v = 1, 7 do
+            eq(('sheet: %s style %d'):format(class, v), got[('ITEM_CHAIR_%s:%d'):format(class, v)], (v - 1) .. ':' .. (row - 1))
+        end
+    end
+    for v = 1, 4 do eq('sheet: leg variant ' .. v .. ' is an empty cell', got['ITEM_CHAIR_LEG_VARIANT:' .. v], '7:' .. (v - 1)) end
+    eq('sheet: nothing else is defined', n, 33)
+    local page = slurp(here .. '/../graphics/tile_page_improved_chairs.txt')
+    check('sheet: the page is 8 by 4 tiles of 32', page:find('[TILE_DIM:32:32]', 1, true) and page:find('[PAGE_DIM_PIXELS:256:128]', 1, true))
+    check('sheet: the page names the picture', page:find('[FILE:images/improved_chairs.png]', 1, true))
+    check('sheet: the definitions use that page', page:find('[TILE_PAGE:IMPROVED_CHAIRS]', 1, true))
 end
 
 print(('%d checks, %d failed'):format(count, failures))

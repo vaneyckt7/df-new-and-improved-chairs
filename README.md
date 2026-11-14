@@ -4,7 +4,8 @@ A DFHack script for Dwarf Fortress that replaces the picture of chairs, built or
 stockpile, with a heavy dwarven slat-back chair, and lets you turn a built one to face north,
 east, south or west. All of it is purely cosmetic: the game has no notion of chair facing, so nothing about the chair or the room
 changes; the save only gains a small DFHack note of each turned or moved chair. Remove the mod
-and every chair looks exactly as it did before.
+and every chair looks exactly as it did before (a world generated with the mod in its mod list
+is the exception, see Installation).
 
 ![A dining hall with chairs of many materials, turned and moved](docs/room.png)
 
@@ -72,10 +73,12 @@ Existing saves work, and that is all most players need.
 
 Optionally, since 1.1, you can also add the mod to a new world's mod list at world generation.
 The mod carries the chair as an ordinary sprite sheet that takes the place of the game's chair
-pictures, so in such a world the game itself draws the new chair, with or without DFHack
-running. Know before you do: a world keeps its own copy of its mods, so in that world chairs
-stay this chair even with the widgets disabled or the mod removed, and turning and moving them
-still needs DFHack and the mod.
+pictures, so in such a world the game itself draws the new chair, also with the widgets
+disabled. Know before you do: treat that choice as permanent for that world. The world is tied
+to the copy of the mod the game keeps under `data/installed_mods`, so keep the mod installed
+for as long as you play that world; what the game does with such a world once the mod's
+folders are deleted has not been tested. Turning and moving chairs works the same as anywhere
+else.
 
 DFHack runs scripts straight from a Workshop mod, so there is no install step. Besides
 `info.txt`, the preview picture, the licence and this readme, the mod is six files, used
@@ -86,8 +89,8 @@ scripts_modinstalled/improved-chairs.lua                             the script
 scripts_modinstalled/internal/improved-chairs/template.lua           the chair art
 scripts_modinstalled/internal/improved-chairs/chair_controls.png     the control symbols
 graphics/graphics_improved_chairs.txt                                \
-graphics/tile_page_improved_chairs.txt                                } the sprite sheet, read by the game
-graphics/images/improved_chairs.png                                  /  only at world generation
+graphics/tile_page_improved_chairs.txt                                } the sprite sheet, used by the game only for
+graphics/images/improved_chairs.png                                  /  worlds generated with the mod
 ```
 
 It writes no files of its own (DFHack notes the two widgets in `dfhack-config/overlay.json`),
@@ -97,7 +100,8 @@ DFHack note.
 To uninstall, unsubscribe. The game keeps its own copy of every subscribed mod, so also delete
 any `new_and_improved_chairs` folder left under `mods` and `data/installed_mods` in the game's
 data folder. On Windows that is `%APPDATA%\Bay 12 Games\Dwarf Fortress`, or the Dwarf Fortress
-folder itself on a portable install.
+folder itself on a portable install. Do not delete them while you still play a world that was
+generated with the mod in its mod list.
 
 All messages go to the DFHack console. If chairs do not change, look there for lines starting
 with `improved-chairs:`, and check that `overlay list chairs` shows both widgets
@@ -123,7 +127,7 @@ Only a cell the game has put a building picture in is changed, so a chair the ga
 show stays unshown. A chair that is still being built is drawn as the game draws it. A chair a
 dwarf has started to take apart goes back to the game's picture within 30 frames.
 
-Everywhere else the game shows a chair (lying in a stockpile or wherever it was dropped, as
+Where the game shows a chair item (lying in a stockpile or wherever it was dropped, as
 the icon on the chair item's own sheet) it draws one of its own chair pictures: it keeps a
 list of them, one for each material class, colour and state of wear or decoration, each made
 the first time such a chair is shown. Since 1.1, while the `improved-chairs.map` widget is on,
@@ -132,13 +136,16 @@ south. So the game itself draws the new chair in those places, with its own rule
 item of a pile shows, and the mod does no per-chair work for them: the list is gone through
 when it grows and every 30 frames. A kind of chair shown for the first time can have the
 game's picture for a frame. The game's pictures are put back when the widget is disabled
-(within 30 frames) and when the fortress is unloaded; nothing of this is saved. Things to know:
+(at once; a few seconds after `disable overlay`, which switches all of DFHack's overlays off)
+and when the fortress is unloaded; nothing of this is saved. Things to know:
 
 - Only built chairs can be turned and nudged. A loose chair always faces south.
 - The art has one chair per material, so the marks the game adds to a worn chair or one
   studded with another material are not shown on a loose chair.
 - The game does not draw a chair that a dwarf is carrying at all, so there is nothing to
   replace there.
+- The chair icon in the building menu is a separate interface picture and keeps the game's
+  chair. The stocks screen shows the new one.
 
 In a world generated with the mod in its mod list, the game's pictures are made from the mod's
 sprite sheet (`graphics/`) to begin with: the same chair, drawn by the game from the first
@@ -189,7 +196,8 @@ The tests cover the painting (tones, see-through pixels, moved tiles), the room 
 its tile, the saved data (reading, the conversion of old saves, dropping chairs that are gone)
 which map cell a chair is drawn in, and the game's own chair pictures (pointed at the mod's
 tiles, put back when the widget or all of DFHack's overlays are switched off and when the
-world is unloaded).
+world is unloaded). They also check that the sprite sheet's definitions name every chair
+picture of the game and the right cell for each.
 
 ## Layout and releasing
 
