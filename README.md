@@ -140,8 +140,6 @@ game's picture for a frame. The game's pictures are put back when the widget is 
 and when the fortress is unloaded; nothing of this is saved. Things to know:
 
 - Only built chairs can be turned and nudged. A loose chair always faces south.
-- The art has one chair per material, so the marks the game adds to a worn chair or one
-  studded with another material are not shown on a loose chair.
 - The game does not draw a chair that a dwarf is carrying at all, so there is nothing to
   replace there.
 - The chair icon in the building menu is a separate interface picture. In an existing save it
@@ -224,9 +222,6 @@ The repository is the mod folder: `info.txt`, `preview.png`, `scripts_modinstall
 
 - The controls are placed from where the sheet title starts, 90 columns from the right edge
   of the interface. An interface change that moves the title would leave them behind.
-- A nudge moves only the chair's picture. A dwarf sitting on the chair is drawn by the game where
-  it always is, in the middle of the tile, so a chair moved far to one side sticks out beside
-  its sitter.
 - A chair cannot be nudged out of its tile: the game lets a building draw only on its own tile.
   How far it can go from its resting position depends on the view: up to 13 pixels sideways for
   a chair seen from the side, 1 pixel up or down for a chair facing south, which nearly fills

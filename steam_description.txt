@@ -54,8 +54,6 @@ overlay disable improved-chairs.sheet[/code]
 [*]Fortress mode with the graphical tiles only.
 [*]Chairs lying in a stockpile or on the floor, and the chair icon on an item's sheet, get the new picture too, facing south. Only built chairs can be turned and moved.
 [*]The chair icon in the building menu keeps the game's chair in an existing save. In a world generated with the mod it shows the new one.
-[*]The marks the game adds to a worn or studded chair are not shown on a chair lying loose.
-[*]Moving a chair moves only its picture. A dwarf using it is still drawn in the middle of the tile.
 [/list]
 
 Source and issues: [url=https://github.com/vaneyckt7/df-new-and-improved-chairs]GitHub[/url]
